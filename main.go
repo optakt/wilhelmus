@@ -228,13 +228,15 @@ func main() {
 
 		case volatile < (autohedge.Debt+autohedge.Interest)*(1-rehedgeRatio):
 			delta := autohedge.Debt + autohedge.Interest - volatile
-			amountStable := delta * price
-			autohedge.Liquidity = (volatile - delta) * (stable - amountStable)
-			autohedge.Debt -= (2 * delta)
+			amountVol := delta * (1 * swapRate)
+			amountStable := amountVol * price
+			autohedge.Liquidity = (volatile - amountVol) * (stable - amountStable)
+			autohedge.Debt -= (delta + amountVol)
+			autohedge.Fees += amountStable * swapRate
 
 		case volatile > (autohedge.Debt+autohedge.Interest)*(1+rehedgeRatio):
 			delta := volatile - autohedge.Debt - autohedge.Interest
-			amountStable := delta * price
+			amountStable := delta * price * (1 * swapRate)
 			autohedge.Liquidity = (volatile + delta) * (stable + amountStable)
 			autohedge.Debt += (2 * delta)
 		}
