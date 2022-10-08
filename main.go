@@ -53,9 +53,9 @@ func main() {
 	pflag.Uint64Var(&swapGas, "swap-gas", 172924, "gas cost for asset swap")
 	pflag.Float64Var(&flashFee, "flash-fee", 0.0009, "fee rate for flash loan")
 	pflag.Uint64Var(&flashGas, "flash-gas", 204493, "gas cost for flash loan")
-	pflag.Float64Var(&lendInterest, "lend-interest", 0.004, "interest rate for lending asset")
+	pflag.Float64Var(&lendInterest, "lend-interest", 0.005, "interest rate for lending asset")
 	pflag.Uint64Var(&lendGas, "lend-gas", 217479, "gas cost for lending asset")
-	pflag.Float64Var(&borrowInterest, "borrow-interest", 0.022, "interest rate for borrowing asset")
+	pflag.Float64Var(&borrowInterest, "borrow-interest", 0.025, "interest rate for borrowing asset")
 	pflag.Uint64Var(&borrowGas, "borrow-gas", 295250, "interest rate for borrowing asset")
 
 	pflag.Parse()
