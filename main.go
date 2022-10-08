@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"time"
 
@@ -135,7 +136,7 @@ func main() {
 	reserve1 := values["reserve1"].(float64)
 	volume0 := values["volume0"].(float64)
 	volume1 := values["volume1"].(float64)
-	price := reserve0 / reserve1 * d18 / d6
+	price := reserve0 / reserve1
 
 	log.Debug().
 		Time("timestamp", timestamp).
@@ -143,7 +144,7 @@ func main() {
 		Float64("reserve1", reserve1).
 		Float64("volume0", volume0).
 		Float64("volume1", volume1).
-		Float64("price", price).
+		Float64("price", price*d18/d6).
 		Msg("datapoint streamed")
 
 	gasPrice, err := station.Gasprice(timestamp)
@@ -186,7 +187,7 @@ func main() {
 		reserve1 := values["reserve1"].(float64)
 		volume0 := values["volume0"].(float64)
 		volume1 := values["volume1"].(float64)
-		price := reserve0 / reserve1 * d18 / d6
+		price := reserve0 / reserve1
 
 		log.Debug().
 			Time("timestamp", timestamp).
@@ -194,7 +195,7 @@ func main() {
 			Float64("reserve1", reserve1).
 			Float64("volume0", volume0).
 			Float64("volume1", volume1).
-			Float64("price", price).
+			Float64("price", price*d18/d6).
 			Msg("datapoint extracted from record")
 
 		elapsed := timestamp.Sub(last).Seconds()
@@ -202,28 +203,37 @@ func main() {
 		realLoanRate := util.CompoundRate(loanRate, uint(elapsed))
 		loanYield := realLoanRate * (autohedge.Principal + autohedge.Yield)
 		autohedge.Yield += loanYield
+		fmt.Println(realLoanRate)
 
 		realBorrowRate := util.CompoundRate(borrowRate, uint(elapsed))
 		borrowInterest := realBorrowRate * (autohedge.Debt + autohedge.Interest)
 		autohedge.Interest += borrowInterest
 
-		// volatile := math.Sqrt(a.Liquidity / price)
-		// stable := a.Liquidity / volatile
-		// switch {
+		last = timestamp
 
-		// case volatile < a.Debt*(1-a.Ratio):
+		volatile := math.Sqrt(autohedge.Liquidity / price)
+		stable := autohedge.Liquidity / volatile
+		switch {
 
-		// 	delta := a.Debt - volatile
-		// 	amountStable := delta * price
-		// 	a.Liquidity = (volatile - delta) * (stable - amountStable)
-		// 	a.Debt -= (2 * delta)
+		case volatile < (autohedge.Debt+autohedge.Interest)*(1-rehedgeRatio):
+			delta := autohedge.Debt + autohedge.Interest - volatile
+			amountStable := delta * price
+			autohedge.Liquidity = (volatile - delta) * (stable - amountStable)
+			autohedge.Debt -= (2 * delta)
 
-		// case volatile > a.Debt*(1+a.Ratio):
-		// 	delta := volatile - a.Debt
-		// 	amountStable := delta * price
-		// 	a.Liquidity = (volatile + delta) * (stable + amountStable)
-		// 	a.Debt += (2 * delta)
-		// }
+		case volatile > (autohedge.Debt+autohedge.Interest)*(1+rehedgeRatio):
+			delta := volatile - autohedge.Debt - autohedge.Interest
+			amountStable := delta * price
+			autohedge.Liquidity = (volatile + delta) * (stable + amountStable)
+			autohedge.Debt += (2 * delta)
+		}
+
+		log.Info().
+			Float64("price", price*d18/d6).
+			Float64("hold", hold.Value(price)*d18/d6).
+			Float64("uniswap", uniswap.Value(price)*d18/d6).
+			Float64("autohedge", autohedge.Value(price)*d18/d6).
+			Msg("position values updated")
 	}
 
 	err = result.Err()

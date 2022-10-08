@@ -15,5 +15,9 @@ type Autohedge struct {
 }
 
 func (a *Autohedge) Value(price float64) float64 {
-	return 2*math.Sqrt(a.Liquidity*price) + (a.Principal + a.Yield) - (a.Debt+a.Interest)*price
+	positionValue := 2 * math.Sqrt(a.Liquidity*price)
+	principalValue := a.Principal + a.Yield
+	debtValue := (a.Debt + a.Interest) * price
+	overheadValue := a.Fees + a.Cost
+	return positionValue + principalValue - debtValue - overheadValue
 }
