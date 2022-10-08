@@ -1,0 +1,5 @@
+- Uniswap v2
+  - `Sync(reserve0, reserve1)`
+  - `Mint(msg.sender, amount0, amount1)`
+  - `Burn(msg.sender, amount0, amount1, to)`
+  - `Swap(msg.sender, amount0In, amount1In, amount0Out, amount1Out, to)`
