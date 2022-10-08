@@ -1,14 +1,32 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/spf13/pflag"
 
+	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
+
 	"github.com/optakt/dewalt/position"
 	"github.com/optakt/dewalt/station"
+)
+
+const (
+	d6  = float64(1_000_000)
+	d18 = float64(1_000_000_000_000_000_000)
+)
+
+const (
+	statement = `from(bucket: "uniswap")
+	|> range(start: %s, stop: %s)
+	|> filter(fn: (r) => r["_measurement"] == "ethereum")
+	|> filter(fn: (r) => r["pair"] == "WETH/USDC")
+	|> filter(fn: (r) => r["_field"] == "volume0" or r["_field"] == "reserve1" or r["_field"] == "reserve0" or r["_field"] == "volume1")
+	|> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")`
 )
 
 func main() {
@@ -46,12 +64,12 @@ func main() {
 
 	pflag.Float64VarP(&inputValue, "input-value", "i", 100_000, "stable coin input amount")
 	pflag.StringVarP(&startTime, "start-time", "s", "2021-05-09T00:00:00Z", "start timestamp for the backtest")
-	pflag.StringVarP(&endTime, "end-time", "e", "2022-10-08T00:00:00Z", "end timestamp for the backtest")
+	pflag.StringVarP(&endTime, "end-time", "e", "2022-10-07T23:59:59Z", "end timestamp for the backtest")
 	pflag.Float64Var(&rehedgeRatio, "rehedge-ratio", 0.01, "ratio between debt and collateral at which we rehedge")
 
 	pflag.StringVarP(&logLevel, "log-level", "l", "info", "Zerolog logger logging message severity")
 	pflag.StringVarP(&gasPrices, "gas-prices", "g", "gas-prices.csv", "CSV file for average gas price per day")
-	pflag.StringVarP(&influxAPI, "influx-api", "i", "https://eu-central-1-1.aws.cloud2.influxdata.com", "InfluxDB API URL")
+	pflag.StringVarP(&influxAPI, "influx-api", "a", "https://eu-central-1-1.aws.cloud2.influxdata.com", "InfluxDB API URL")
 	pflag.StringVarP(&influxToken, "influx-token", "t", "3Lq2o0e6-NmfpXK_UQbPqknKgQUbALMdNz86Ojhpm6dXGqGnCuEYGZijTMGhP82uxLfoWiWZRS2Vls0n4dZAjQ==", "InfluxDB authentication token")
 	pflag.StringVarP(&influxOrg, "influx-org", "o", "optakt", "InfluxDB organization name")
 	pflag.StringVarP(&influxBucketUniswap, "influx-bucket-uniswap", "u", "uniswap", "InfluxDB bucket name for Uniswap metrics")
@@ -83,59 +101,102 @@ func main() {
 	}
 	log = log.Level(level)
 
-	startTimestamp, err := time.Parse(time.RFC3339, startTime)
-	if err != nil {
-		log.Fatal().Err(err).Str("start_time", startTime).Msg("invalid start time")
-	}
-
-	endTimestamp, err := time.Parse(time.RFC3339, endTime)
-	if err != nil {
-		log.Fatal().Err(err).Str("end_time", endTime).Msg("invaldi end time")
-	}
-
 	station, err := station.New(gasPrices)
 	if err != nil {
 		log.Fatal().Err(err).Str("gas_prices", gasPrices).Msg("could not create gas station")
 	}
 
-	for timestamp := startTimestamp; timestamp == timestamp; _ = endTimestamp {
+	client := influxdb2.NewClient(influxAPI, influxToken)
+	influx := client.QueryAPI(influxOrg)
+	query := fmt.Sprintf(statement, startTime, endTime)
+	result, err := influx.Query(context.Background(), query)
+	if err != nil {
+		log.Fatal().Err(err).Msg("could not execute query")
+	}
+	if !result.Next() {
+		log.Fatal().Msg("no records found")
+	}
+	err = result.Err()
+	if err != nil {
+		log.Fatal().Err(result.Err()).Msg("could not stream first record")
+	}
 
-		// get price series from influx here
-		price := float64(0)
+	record := result.Record()
+	timestamp := record.Time()
+	values := record.Values()
+	reserve0 := values["reserve0"].(float64)
+	reserve1 := values["reserve1"].(float64)
+	volume0 := values["volume0"].(float64)
+	volume1 := values["volume1"].(float64)
+	price := reserve0 / reserve1 * d18 / d6
 
-		gasPrice, err := station.Gasprice(timestamp)
-		if err != nil {
-			log.Fatal().Err(err).Time("timestamp", timestamp).Msg("could not get gas price for timestamp")
-		}
+	log.Debug().
+		Time("timestamp", timestamp).
+		Float64("reserve0", reserve0).
+		Float64("reserve1", reserve1).
+		Float64("volume0", volume0).
+		Float64("volume1", volume1).
+		Float64("price", price).
+		Msg("datapoint streamed")
 
-		hold := position.Hold{
-			Stable:   inputValue / 2 * (1 - swapFee/2),
-			Volatile: inputValue / 2 / price * (1 - swapFee/2),
-			Fees:     inputValue / 2 * swapFee,
-			Cost:     (2*approveGas + swapGas) * gasPrice,
-		}
+	gasPrice, err := station.Gasprice(timestamp)
+	if err != nil {
+		log.Fatal().Err(err).Time("timestamp", timestamp).Msg("could not get gas price for timestamp")
+	}
 
-		uniswap := position.Uniswap{
-			Liquidity: hold.Stable * hold.Volatile,
-			Fees:      hold.Fees,
-			Cost:      hold.Cost + (2*approveGas+swapGas+provideGas)*gasPrice,
-		}
+	hold := position.Hold{
+		Stable:   inputValue / 2 * (1 - swapFee/2),
+		Volatile: inputValue / 2 / price * (1 - swapFee/2),
+		Fees:     inputValue / 2 * swapFee,
+		Cost:     (2*approveGas + swapGas) * gasPrice,
+	}
 
-		amountVol := inputValue / (price * (1 + (flashFee / (1 - swapFee))))
-		feeVol := amountVol * flashFee
-		feeStable := flashFee * price / (1 - swapFee)
-		amountStable := inputValue - feeStable
+	uniswap := position.Uniswap{
+		Liquidity: hold.Stable * hold.Volatile,
+		Fees:      hold.Fees,
+		Cost:      hold.Cost + (2*approveGas+swapGas+provideGas)*gasPrice,
+	}
 
-		autohedge := position.Autohedge{
-			Ratio:     rehedgeRatio,
-			Liquidity: (amountStable * amountVol),
-			Debt:      amountVol,
-			Fees:      feeVol*price + feeStable,
-			Cost:      uniswap.Cost + (4*approveGas+flashGas+lendGas+borrowGas)*gasPrice,
-			Interest:  0,
-		}
+	amountVol := inputValue / (price * (1 + (flashFee / (1 - swapFee))))
+	feeVol := amountVol * flashFee
+	feeStable := flashFee * price / (1 - swapFee)
+	amountStable := inputValue - feeStable
+
+	autohedge := position.Autohedge{
+		Ratio:     rehedgeRatio,
+		Liquidity: (amountStable * amountVol),
+		Debt:      amountVol,
+		Fees:      feeVol*price + feeStable,
+		Cost:      uniswap.Cost + (4*approveGas+flashGas+lendGas+borrowGas)*gasPrice,
+		Interest:  0,
+	}
+
+	for result.Next() {
+
+		record := result.Record()
+		timestamp := record.Time()
+		values := record.Values()
+		reserve0 := values["reserve0"].(float64)
+		reserve1 := values["reserve1"].(float64)
+		volume0 := values["volume0"].(float64)
+		volume1 := values["volume1"].(float64)
+		price := reserve0 / reserve1 * d18 / d6
+
+		log.Debug().
+			Time("timestamp", timestamp).
+			Float64("reserve0", reserve0).
+			Float64("reserve1", reserve1).
+			Float64("volume0", volume0).
+			Float64("volume1", volume1).
+			Float64("price", price).
+			Msg("datapoint extracted from record")
 
 		_ = autohedge
+	}
+
+	err = result.Err()
+	if err != nil {
+		log.Fatal().Err(err).Msg("could not finish streaming records")
 	}
 
 	os.Exit(0)

@@ -29,9 +29,9 @@ func New(file string) (*Station, error) {
 	prices := make(map[time.Time]uint64, len(records))
 	for _, record := range records[1:] {
 
-		day, err := time.Parse("1/2/2006", record[0])
+		date, err := time.Parse("1/2/2006", record[0])
 		if err != nil {
-			return nil, fmt.Errorf("could not parse gas price day: %w", err)
+			return nil, fmt.Errorf("could not parse gas price date: %w", err)
 		}
 
 		value, err := strconv.ParseUint(record[2], 10, 64)
@@ -39,7 +39,13 @@ func New(file string) (*Station, error) {
 			return nil, fmt.Errorf("could not parse gas price value: %w", err)
 		}
 
-		prices[day] = value
+		prices[date] = value
+	}
+
+	date := time.Date(2021, time.May, 9, 0, 0, 0, 0, time.UTC)
+	_, ok := prices[date]
+	if !ok {
+		panic("wtf")
 	}
 
 	s := Station{
@@ -53,9 +59,9 @@ func (s *Station) Gasprice(timestamp time.Time) (float64, error) {
 
 	year, month, day := timestamp.Date()
 	date := time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
-	gasprice, ok := s.prices[timestamp]
+	gasprice, ok := s.prices[date]
 	if !ok {
-		return 0, fmt.Errorf("gas price not found for date (%s)", date.Format("2006-01-02"))
+		return 0, fmt.Errorf("gas price not found for date timestamp")
 	}
 
 	return float64(gasprice), nil
