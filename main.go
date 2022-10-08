@@ -13,6 +13,7 @@ import (
 
 	"github.com/optakt/dewalt/position"
 	"github.com/optakt/dewalt/station"
+	"github.com/optakt/dewalt/util"
 )
 
 const (
@@ -32,23 +33,25 @@ const (
 func main() {
 
 	var (
+		logLevel  string
+		gasPrices string
+
 		inputValue   float64
 		startTime    string
 		endTime      string
 		rehedgeRatio float64
 
-		logLevel              string
-		gasPrices             string
 		influxAPI             string
 		influxToken           string
 		influxOrg             string
+		influxTimeout         time.Duration
 		influxBucketUniswap   string
 		influxBucketPositions string
 
-		swapFee        float64
-		flashFee       float64
-		lendInterest   float64
-		borrowInterest float64
+		swapRate   float64
+		flashRate  float64
+		loanRate   float64
+		borrowRate float64
 
 		approveGas  float64
 		swapGas     float64
@@ -62,23 +65,25 @@ func main() {
 		repayGas    float64
 	)
 
+	pflag.StringVarP(&logLevel, "log-level", "l", "info", "Zerolog logger logging message severity")
+	pflag.StringVarP(&gasPrices, "gas-prices", "g", "gas-prices.csv", "CSV file for average gas price per day")
+
 	pflag.Float64VarP(&inputValue, "input-value", "i", 100_000, "stable coin input amount")
-	pflag.StringVarP(&startTime, "start-time", "s", "2021-05-09T00:00:00Z", "start timestamp for the backtest")
+	pflag.StringVarP(&startTime, "start-time", "s", "2021-10-07T00:00:00Z", "start timestamp for the backtest")
 	pflag.StringVarP(&endTime, "end-time", "e", "2022-10-07T23:59:59Z", "end timestamp for the backtest")
 	pflag.Float64Var(&rehedgeRatio, "rehedge-ratio", 0.01, "ratio between debt and collateral at which we rehedge")
 
-	pflag.StringVarP(&logLevel, "log-level", "l", "info", "Zerolog logger logging message severity")
-	pflag.StringVarP(&gasPrices, "gas-prices", "g", "gas-prices.csv", "CSV file for average gas price per day")
 	pflag.StringVarP(&influxAPI, "influx-api", "a", "https://eu-central-1-1.aws.cloud2.influxdata.com", "InfluxDB API URL")
 	pflag.StringVarP(&influxToken, "influx-token", "t", "3Lq2o0e6-NmfpXK_UQbPqknKgQUbALMdNz86Ojhpm6dXGqGnCuEYGZijTMGhP82uxLfoWiWZRS2Vls0n4dZAjQ==", "InfluxDB authentication token")
 	pflag.StringVarP(&influxOrg, "influx-org", "o", "optakt", "InfluxDB organization name")
-	pflag.StringVarP(&influxBucketUniswap, "influx-bucket-uniswap", "u", "uniswap", "InfluxDB bucket name for Uniswap metrics")
-	pflag.StringVarP(&influxBucketPositions, "influx-bucket-positions", "p", "positions", "InfluxDB bucket for position values")
+	pflag.DurationVarP(&influxTimeout, "influx-timeout", "u", 15*time.Minute, "InfluxDB query HTTP request timeout")
+	pflag.StringVar(&influxBucketUniswap, "influx-bucket-uniswap", "uniswap", "InfluxDB bucket name for Uniswap metrics")
+	pflag.StringVar(&influxBucketPositions, "influx-bucket-positions", "positions", "InfluxDB bucket for position values")
 
-	pflag.Float64Var(&swapFee, "swap-fee", 0.003, "fee rate for asset swap")
-	pflag.Float64Var(&flashFee, "flash-fee", 0.0009, "fee rate for flash loan")
-	pflag.Float64Var(&lendInterest, "lend-interest", 0.005, "interest rate for lending asset")
-	pflag.Float64Var(&borrowInterest, "borrow-interest", 0.025, "interest rate for borrowing asset")
+	pflag.Float64Var(&swapRate, "swap-fee", 0.003, "fee rate for asset swap")
+	pflag.Float64Var(&flashRate, "flash-fee", 0.0009, "fee rate for flash loan")
+	pflag.Float64Var(&loanRate, "lend-interest", 0.005, "interest rate for lending asset")
+	pflag.Float64Var(&borrowRate, "borrow-interest", 0.025, "interest rate for borrowing asset")
 
 	pflag.Float64Var(&approveGas, "approve-gas", 24102, "gas cost for transfer approval")
 	pflag.Float64Var(&swapGas, "swap-gas", 181133, "gas cost for asset swap")
@@ -106,7 +111,9 @@ func main() {
 		log.Fatal().Err(err).Str("gas_prices", gasPrices).Msg("could not create gas station")
 	}
 
-	client := influxdb2.NewClient(influxAPI, influxToken)
+	client := influxdb2.NewClientWithOptions(influxAPI, influxToken,
+		influxdb2.DefaultOptions().SetHTTPRequestTimeout(uint(influxTimeout.Seconds())),
+	)
 	influx := client.QueryAPI(influxOrg)
 	query := fmt.Sprintf(statement, startTime, endTime)
 	result, err := influx.Query(context.Background(), query)
@@ -145,9 +152,9 @@ func main() {
 	}
 
 	hold := position.Hold{
-		Stable:   inputValue / 2 * (1 - swapFee/2),
-		Volatile: inputValue / 2 / price * (1 - swapFee/2),
-		Fees:     inputValue / 2 * swapFee,
+		Stable:   inputValue / 2 * (1 - swapRate/2),
+		Volatile: inputValue / 2 / price * (1 - swapRate/2),
+		Fees:     inputValue / 2 * swapRate,
 		Cost:     (2*approveGas + swapGas) * gasPrice,
 	}
 
@@ -157,20 +164,19 @@ func main() {
 		Cost:      hold.Cost + (2*approveGas+swapGas+provideGas)*gasPrice,
 	}
 
-	amountVol := inputValue / (price * (1 + (flashFee / (1 - swapFee))))
-	feeVol := amountVol * flashFee
-	feeStable := flashFee * price / (1 - swapFee)
+	amountVol := inputValue / (price * (1 + (flashRate / (1 - swapRate))))
+	feeVol := amountVol * flashRate
+	feeStable := flashRate * price / (1 - swapRate)
 	amountStable := inputValue - feeStable
 
 	autohedge := position.Autohedge{
-		Ratio:     rehedgeRatio,
 		Liquidity: (amountStable * amountVol),
 		Debt:      amountVol,
 		Fees:      feeVol*price + feeStable,
 		Cost:      uniswap.Cost + (4*approveGas+flashGas+lendGas+borrowGas)*gasPrice,
-		Interest:  0,
 	}
 
+	last := timestamp
 	for result.Next() {
 
 		record := result.Record()
@@ -191,7 +197,33 @@ func main() {
 			Float64("price", price).
 			Msg("datapoint extracted from record")
 
-		_ = autohedge
+		elapsed := timestamp.Sub(last).Seconds()
+
+		realLoanRate := util.CompoundRate(loanRate, uint(elapsed))
+		loanYield := realLoanRate * (autohedge.Principal + autohedge.Yield)
+		autohedge.Yield += loanYield
+
+		realBorrowRate := util.CompoundRate(borrowRate, uint(elapsed))
+		borrowInterest := realBorrowRate * (autohedge.Debt + autohedge.Interest)
+		autohedge.Interest += borrowInterest
+
+		// volatile := math.Sqrt(a.Liquidity / price)
+		// stable := a.Liquidity / volatile
+		// switch {
+
+		// case volatile < a.Debt*(1-a.Ratio):
+
+		// 	delta := a.Debt - volatile
+		// 	amountStable := delta * price
+		// 	a.Liquidity = (volatile - delta) * (stable - amountStable)
+		// 	a.Debt -= (2 * delta)
+
+		// case volatile > a.Debt*(1+a.Ratio):
+		// 	delta := volatile - a.Debt
+		// 	amountStable := delta * price
+		// 	a.Liquidity = (volatile + delta) * (stable + amountStable)
+		// 	a.Debt += (2 * delta)
+		// }
 	}
 
 	err = result.Err()
