@@ -81,10 +81,10 @@ func main() {
 	pflag.StringVar(&influxBucketUniswap, "influx-bucket-uniswap", "uniswap", "InfluxDB bucket name for Uniswap metrics")
 	pflag.StringVar(&influxBucketPositions, "influx-bucket-positions", "positions", "InfluxDB bucket for position values")
 
-	pflag.Float64Var(&swapRate, "swap-fee", 0.003, "fee rate for asset swap")
-	pflag.Float64Var(&flashRate, "flash-fee", 0.0009, "fee rate for flash loan")
-	pflag.Float64Var(&loanRate, "lend-interest", 0.005, "interest rate for lending asset")
-	pflag.Float64Var(&borrowRate, "borrow-interest", 0.025, "interest rate for borrowing asset")
+	pflag.Float64Var(&swapRate, "swap-rate", 0.003, "fee rate for asset swap")
+	pflag.Float64Var(&flashRate, "flash-rate", 0.0009, "fee rate for flash loan")
+	pflag.Float64Var(&loanRate, "lend-rate", 0.005, "interest rate for lending asset")
+	pflag.Float64Var(&borrowRate, "borrow-rate", 0.025, "interest rate for borrowing asset")
 
 	pflag.Float64Var(&approveGas, "approve-gas", 24102, "gas cost for transfer approval")
 	pflag.Float64Var(&swapGas, "swap-gas", 181133, "gas cost for asset swap")
@@ -144,7 +144,7 @@ func main() {
 		Float64("reserve1", reserve1).
 		Float64("volume0", volume0).
 		Float64("volume1", volume1).
-		Float64("price", price*d18/d6).
+		Float64("price", price).
 		Msg("datapoint streamed")
 
 	gasPrice, err := station.Gasprice(timestamp)
@@ -152,29 +152,34 @@ func main() {
 		log.Fatal().Err(err).Time("timestamp", timestamp).Msg("could not get gas price for timestamp")
 	}
 
+	inputStable := inputValue * d6
+
 	hold := position.Hold{
-		Stable:   inputValue / 2 * (1 - swapRate/2),
-		Volatile: inputValue / 2 / price * (1 - swapRate/2),
-		Fees:     inputValue / 2 * swapRate,
-		Cost:     (2*approveGas + swapGas) * gasPrice,
+		Stable:   inputStable / 2 * (1 - swapRate/2),
+		Volatile: inputStable / 2 / price * (1 - swapRate/2),
+		Fees:     inputStable / 2 * swapRate,
+		Cost:     (2*approveGas + swapGas) * gasPrice * price,
 	}
 
 	uniswap := position.Uniswap{
 		Liquidity: hold.Stable * hold.Volatile,
 		Fees:      hold.Fees,
-		Cost:      hold.Cost + (2*approveGas+swapGas+provideGas)*gasPrice,
+		Cost:      hold.Cost + (2*approveGas+swapGas+provideGas)*gasPrice*price,
 	}
 
-	amountVol := inputValue / (price * (1 + (flashRate / (1 - swapRate))))
+	amountVol := inputStable / (price * (1 + (flashRate / (1 - swapRate))))
 	feeVol := amountVol * flashRate
 	feeStable := flashRate * price / (1 - swapRate)
-	amountStable := inputValue - feeStable
+	amountStable := inputStable - feeStable
 
 	autohedge := position.Autohedge{
 		Liquidity: (amountStable * amountVol),
+		Principal: amountStable + amountVol*price,
+		Yield:     0,
 		Debt:      amountVol,
+		Interest:  0,
 		Fees:      feeVol*price + feeStable,
-		Cost:      uniswap.Cost + (4*approveGas+flashGas+lendGas+borrowGas)*gasPrice,
+		Cost:      uniswap.Cost + (4*approveGas+flashGas+lendGas+borrowGas)*gasPrice*price,
 	}
 
 	last := timestamp
@@ -195,7 +200,7 @@ func main() {
 			Float64("reserve1", reserve1).
 			Float64("volume0", volume0).
 			Float64("volume1", volume1).
-			Float64("price", price*d18/d6).
+			Float64("price", price).
 			Msg("datapoint extracted from record")
 
 		elapsed := timestamp.Sub(last).Seconds()
@@ -203,13 +208,19 @@ func main() {
 		realLoanRate := util.CompoundRate(loanRate, uint(elapsed))
 		loanYield := realLoanRate * (autohedge.Principal + autohedge.Yield)
 		autohedge.Yield += loanYield
-		fmt.Println(realLoanRate)
 
 		realBorrowRate := util.CompoundRate(borrowRate, uint(elapsed))
 		borrowInterest := realBorrowRate * (autohedge.Debt + autohedge.Interest)
 		autohedge.Interest += borrowInterest
 
 		last = timestamp
+
+		log.Debug().
+			Float64("principal", autohedge.Principal).
+			Float64("yield", autohedge.Yield).
+			Float64("debt", autohedge.Debt).
+			Float64("interest", autohedge.Interest).
+			Msg("yield and interest compounded")
 
 		volatile := math.Sqrt(autohedge.Liquidity / price)
 		stable := autohedge.Liquidity / volatile
@@ -230,9 +241,9 @@ func main() {
 
 		log.Info().
 			Float64("price", price*d18/d6).
-			Float64("hold", hold.Value(price)*d18/d6).
-			Float64("uniswap", uniswap.Value(price)*d18/d6).
-			Float64("autohedge", autohedge.Value(price)*d18/d6).
+			Float64("hold", hold.Value(price)/d6).
+			Float64("uniswap", uniswap.Value(price)/d6).
+			Float64("autohedge", autohedge.Value(price)/d6).
 			Msg("position values updated")
 	}
 
