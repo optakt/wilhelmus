@@ -8,5 +8,5 @@ type Hold struct {
 }
 
 func (h Hold) Value(price float64) float64 {
-	return h.Stable + h.Volatile*price
+	return h.Stable + h.Volatile*price - h.Fees - h.Cost
 }
