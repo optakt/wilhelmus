@@ -1,6 +1,7 @@
 - Uniswap v2
   - WETH/USDC
     - Address: `0xB4e16d0168e52d35CaCD2c6185b44281Ec28C9Dc`
+    - First transaction block `10019997`
 - Uniswap v3
   - WETH/USDC
     - 0.05%
