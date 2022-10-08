@@ -17,5 +17,5 @@ func NewUniswap(input float64, price float64) *Uniswap {
 }
 
 func (u Uniswap) Value(price float64) float64 {
-	return 2*math.Sqrt(price*u.liquidity) - u.debt
+	return 2*math.Sqrt(u.liquidity*price) - u.debt
 }

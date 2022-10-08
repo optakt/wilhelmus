@@ -1,56 +1,45 @@
 package main
 
 import (
+	"fmt"
 	"os"
-	"time"
 
-	"github.com/rs/zerolog"
 	"github.com/spf13/pflag"
-)
 
-const (
-	d18 = 1_000_000_000_000_000_000
+	"github.com/optakt/dewalt/position"
 )
 
 func main() {
 
 	var (
 		depositAmountStable float64
-		volAssetPrice       float64
-		flashFeeRate        float64
+		volCurrentPrice     float64
+		volTargetPrice      float64
 		swapFeeRate         float64
-		borrowFeeRate       float64
-		txCost              float64
 	)
 
-	pflag.Float64VarP(&depositAmountStable, "input", "i", 2000, "stable coin input amount")
-	pflag.Float64VarP(&volAssetPrice, "price", "p", 2000, "volatile price in stable")
-	pflag.Float64VarP(&flashFeeRate, "flash", "f", 0.0005, "flash loan fee rate")
+	pflag.Float64VarP(&depositAmountStable, "input", "i", 10000, "stable coin input amount")
+	pflag.Float64VarP(&volCurrentPrice, "price", "p", 1000, "volatile asset starting price")
+	pflag.Float64VarP(&volTargetPrice, "target", "t", 1200, "volatile asset price target")
 	pflag.Float64VarP(&swapFeeRate, "swap", "s", 0.003, "token swap fee rate")
-	pflag.Float64VarP(&borrowFeeRate, "borrow", "b", 0.02, "normal loan fee rate")
-	pflag.Float64VarP(&txCost, "cost", "c", 5, "transactions gas cost")
 
-	zerolog.TimestampFunc = func() time.Time { return time.Now().UTC() }
-	log := zerolog.New(os.Stderr)
+	hold := position.NewHold(depositAmountStable, volCurrentPrice)
+	uniswap := position.NewUniswap(depositAmountStable, volCurrentPrice)
+	autohedge8 := position.NewAutohedge(depositAmountStable, volCurrentPrice, 0.08, swapFeeRate)
+	autohedge4 := position.NewAutohedge(depositAmountStable, volCurrentPrice, 0.04, swapFeeRate)
+	autohedge2 := position.NewAutohedge(depositAmountStable, volCurrentPrice, 0.02, swapFeeRate)
+	autohedge1 := position.NewAutohedge(depositAmountStable, volCurrentPrice, 0.01, swapFeeRate)
 
-	inputAmountVol := depositAmountStable / (volAssetPrice * (1 + (flashFeeRate / (1 - swapFeeRate))))
-	flashFeeVol := inputAmountVol * flashFeeRate
-	flashFeeStable := flashFeeVol * volAssetPrice / (1 - swapFeeRate)
-	inputAmountStable := depositAmountStable - flashFeeStable
-	totalEquivalentStable := inputAmountVol*volAssetPrice + inputAmountStable
-	totalEquivalentVol := inputAmountVol + inputAmountStable/volAssetPrice
-	collateralRatio := totalEquivalentVol / inputAmountVol
-
-	log.Info().
-		Float64("deposit_amount_stable", depositAmountStable).
-		Float64("input_amount_volatile", inputAmountVol).
-		Float64("flash_fee_volatile", flashFeeVol).
-		Float64("flash_fee_stable", flashFeeStable).
-		Float64("input_amount_stable", inputAmountStable).
-		Float64("total_equivalent_stable", totalEquivalentStable).
-		Float64("total_equivalent_volatile", totalEquivalentVol).
-		Float64("collateral_ratio", collateralRatio).
-		Msg("amounts computed")
+	for price := volCurrentPrice; price <= volTargetPrice; price += 1 {
+		fmt.Printf("%5.f %5.f %5.f %5.f %5.f %5.f\n",
+			hold.Value(price),
+			uniswap.Value(price),
+			autohedge8.Value(price),
+			autohedge4.Value(price),
+			autohedge2.Value(price),
+			autohedge1.Value(price),
+		)
+	}
 
 	pflag.Parse()
 
