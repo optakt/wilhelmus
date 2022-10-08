@@ -49,7 +49,7 @@ func New(file string) (*Station, error) {
 	return &s, nil
 }
 
-func (s *Station) Gasprice(timestamp time.Time) (uint64, error) {
+func (s *Station) Gasprice(timestamp time.Time) (float64, error) {
 
 	year, month, day := timestamp.Date()
 	date := time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
@@ -58,5 +58,5 @@ func (s *Station) Gasprice(timestamp time.Time) (uint64, error) {
 		return 0, fmt.Errorf("gas price not found for date (%s)", date.Format("2006-01-02"))
 	}
 
-	return gasprice, nil
+	return float64(gasprice), nil
 }

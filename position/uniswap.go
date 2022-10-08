@@ -5,17 +5,11 @@ import (
 )
 
 type Uniswap struct {
-	liquidity float64
-	debt      float64
-}
-
-func NewUniswap(input float64, price float64) *Uniswap {
-	return &Uniswap{
-		liquidity: input * input / price,
-		debt:      input,
-	}
+	Liquidity float64
+	Fees      float64
+	Cost      float64
 }
 
 func (u Uniswap) Value(price float64) float64 {
-	return 2*math.Sqrt(u.liquidity*price) - u.debt
+	return 2 * math.Sqrt(u.Liquidity*price)
 }

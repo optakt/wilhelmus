@@ -5,40 +5,33 @@ import (
 )
 
 type Autohedge struct {
-	liquidity float64
-	debt      float64
-	ratio     float64
-	swap      float64
-}
-
-func NewAutohedge(input float64, price float64, ratio float64, swap float64) *Autohedge {
-	return &Autohedge{
-		liquidity: input * input / price,
-		debt:      input / price,
-		ratio:     ratio,
-		swap:      swap,
-	}
+	Ratio     float64
+	Liquidity float64
+	Debt      float64
+	Fees      float64
+	Cost      float64
+	Interest  float64
 }
 
 func (a *Autohedge) Value(price float64) float64 {
 
-	volatile := math.Sqrt(a.liquidity / price)
-	stable := a.liquidity / volatile
+	volatile := math.Sqrt(a.Liquidity / price)
+	stable := a.Liquidity / volatile
 	switch {
 
-	case volatile < a.debt*(1-a.ratio):
+	case volatile < a.Debt*(1-a.Ratio):
 
-		delta := a.debt - volatile
+		delta := a.Debt - volatile
 		amountStable := delta * price
-		a.liquidity = (volatile - delta) * (stable - amountStable)
-		a.debt -= (2 * delta)
+		a.Liquidity = (volatile - delta) * (stable - amountStable)
+		a.Debt -= (2 * delta)
 
-	case volatile > a.debt*(1+a.ratio):
-		delta := volatile - a.debt
+	case volatile > a.Debt*(1+a.Ratio):
+		delta := volatile - a.Debt
 		amountStable := delta * price
-		a.liquidity = (volatile + delta) * (stable + amountStable)
-		a.debt += (2 * delta)
+		a.Liquidity = (volatile + delta) * (stable + amountStable)
+		a.Debt += (2 * delta)
 	}
 
-	return 2*math.Sqrt(a.liquidity*price) - a.debt*price
+	return 2*math.Sqrt(a.Liquidity*price) - a.Debt*price
 }
