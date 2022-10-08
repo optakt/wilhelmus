@@ -1,0 +1,9 @@
+- Uniswap v2
+  - WETH/USDC
+    - Address: `0xB4e16d0168e52d35CaCD2c6185b44281Ec28C9Dc`
+- Uniswap v3
+  - WETH/USDC
+    - 0.05%
+      - Address: `0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640`
+    - 0.3%
+      - Address:`0x8ad599c3A0ff1De082011EFDDc58f1908eb6e6D8`
