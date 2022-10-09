@@ -3,7 +3,7 @@ package main
 import (
 	"time"
 
-	"github.com/optakt/dewalt/position"
+	"github.com/optakt/wilhelmus/position"
 
 	"github.com/influxdata/influxdb-client-go/v2/api"
 	"github.com/influxdata/influxdb-client-go/v2/api/write"

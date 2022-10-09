@@ -12,9 +12,9 @@ import (
 
 	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
 
-	"github.com/optakt/dewalt/position"
-	"github.com/optakt/dewalt/station"
-	"github.com/optakt/dewalt/util"
+	"github.com/optakt/wilhelmus/position"
+	"github.com/optakt/wilhelmus/station"
+	"github.com/optakt/wilhelmus/util"
 )
 
 const (

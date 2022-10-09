@@ -1,4 +1,4 @@
-module github.com/optakt/dewalt
+module github.com/optakt/wilhelmus
 
 go 1.19
 
