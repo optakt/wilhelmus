@@ -12,9 +12,9 @@ import (
 func writeHold(timestamp time.Time, price float64, hold position.Hold, outbound api.WriteAPI) {
 
 	tags := map[string]string{
+		"chain":    "ethereum",
 		"size":     "1M",
 		"strategy": "hold",
-		"chain":    "ethereum",
 	}
 	fields := map[string]interface{}{
 		"value": hold.Value0(price) / d6,
@@ -29,9 +29,9 @@ func writeHold(timestamp time.Time, price float64, hold position.Hold, outbound 
 func writeUniswap(timestamp time.Time, price float64, uniswap position.Uniswap, outbound api.WriteAPI) {
 
 	tags := map[string]string{
+		"chain":    "ethereum",
 		"size":     "1M",
 		"strategy": "uniswap",
-		"chain":    "ethereum",
 	}
 	fields := map[string]interface{}{
 		"value":  uniswap.Value0(price) / d6,
@@ -47,9 +47,10 @@ func writeUniswap(timestamp time.Time, price float64, uniswap position.Uniswap, 
 func writeAutohedge(timestamp time.Time, price float64, autohedge position.Autohedge, outbound api.WriteAPI) {
 
 	tags := map[string]string{
+		"chain":    "ethereum",
 		"size":     "1M",
 		"strategy": "autohedge",
-		"chain":    "ethereum",
+		"leverage": "2x",
 		"rehedge":  "1%",
 	}
 	fields := map[string]interface{}{
