@@ -34,8 +34,9 @@ const (
 func main() {
 
 	var (
-		logLevel  string
-		gasPrices string
+		logLevel     string
+		writeResults bool
+		gasPrices    string
 
 		inputValue   float64
 		startTime    string
@@ -73,6 +74,7 @@ func main() {
 	)
 
 	pflag.StringVarP(&logLevel, "log-level", "l", "info", "Zerolog logger logging message severity")
+	pflag.BoolVarP(&writeResults, "write-results", "w", false, "whether to write the results back to InfluxDB")
 	pflag.StringVarP(&gasPrices, "gas-prices", "g", "gas-prices.csv", "CSV file for average gas price per day")
 
 	pflag.Float64VarP(&inputValue, "input-value", "i", 1_000_000, "stable coin input amount")
@@ -201,9 +203,11 @@ func main() {
 		Cost0:      gasAuto * gasPrice1 * price,
 	}
 
-	writeHold(timestamp, price, hold, outbound)
-	writeUniswap(timestamp, price, uniswap, outbound)
-	writeAutohedge(timestamp, price, autohedge, outbound)
+	if writeResults {
+		writeHold(timestamp, price, hold, outbound)
+		writeUniswap(timestamp, price, uniswap, outbound)
+		writeAutohedge(timestamp, price, autohedge, outbound)
+	}
 
 	last := timestamp
 	for result.Next() {
@@ -347,9 +351,11 @@ func main() {
 				Msg("increased debt to rehedge autoswap position")
 		}
 
-		writeHold(timestamp, price, hold, outbound)
-		writeUniswap(timestamp, price, uniswap, outbound)
-		writeAutohedge(timestamp, price, autohedge, outbound)
+		if writeResults {
+			writeHold(timestamp, price, hold, outbound)
+			writeUniswap(timestamp, price, uniswap, outbound)
+			writeAutohedge(timestamp, price, autohedge, outbound)
+		}
 
 		log.Info().
 			Float64("price", price*d18/d6).
