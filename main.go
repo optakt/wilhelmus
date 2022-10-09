@@ -54,12 +54,18 @@ func main() {
 		loanRate   float64
 		borrowRate float64
 
-		approveGas  float64
-		swapGas     float64
-		provideGas  float64
-		flashGas    float64
-		lendGas     float64
-		claimGas    float64
+		approveGas float64
+		swapGas    float64
+		flashGas   float64
+
+		createGas float64
+		addGas    float64
+		removeGas float64
+		closeGas  float64
+
+		lendGas  float64
+		claimGas float64
+
 		borrowGas   float64
 		reborrowGas float64
 		unborrowGas float64
@@ -88,10 +94,16 @@ func main() {
 
 	pflag.Float64Var(&approveGas, "approve-gas", 24102, "gas cost for transfer approval")
 	pflag.Float64Var(&swapGas, "swap-gas", 181133, "gas cost for asset swap")
-	pflag.Float64Var(&provideGas, "provide-gas", 0, "gas cost for providing liquidity")
 	pflag.Float64Var(&flashGas, "flash-gas", 204493, "gas cost for flash loan")
+
+	pflag.Float64Var(&createGas, "provide-gas", 157880, "gas cost for creating liquidity position")
+	pflag.Float64Var(&addGas, "add-gas", 130682, "gas cost for adding liquidity")
+	pflag.Float64Var(&removeGas, "remove-gas", 161841, "gas cost to remove liquidity")
+	pflag.Float64Var(&closeGas, "close-gas", 207111, "gas cost for close liquidity position")
+
 	pflag.Float64Var(&lendGas, "lend-gas", 217479, "gas cost for lending asset")
 	pflag.Float64Var(&claimGas, "claim-gas", 333793, "gas cost to claim back loan")
+
 	pflag.Float64Var(&borrowGas, "borrow-gas", 295250, "gas cost for borrowing asset")
 	pflag.Float64Var(&unborrowGas, "unborrow-gas", 193729, "gas cost for reducing debt")
 	pflag.Float64Var(&reborrowGas, "increase-gas", 271980, "gas cost for increasing debt")
@@ -157,7 +169,7 @@ func main() {
 	uniswap := position.Uniswap{
 		Liquidity: hold.Amount0 * hold.Amount1,
 		Fees0:     hold.Fees0,
-		Cost0:     hold.Cost0,
+		Cost0:     hold.Cost0 + createGas*gasPrice*price,
 	}
 
 	amountVol := input0 / (price * (1 + (flashRate / (1 - swapRate))))
@@ -265,6 +277,7 @@ func main() {
 			autohedge.Liquidity = (amount0 - move0) * (amount1 - move1)
 			autohedge.Debt1 -= (delta1 + move1)
 			autohedge.Fees0 += move0 * swapRate
+			autohedge.Cost0 += (swapGas * unborrowGas * addGas) * gasPrice * price
 
 		case amount0 > (autohedge.Debt1+autohedge.Interest1)*(1+rehedgeRatio):
 			delta1 := amount1 - autohedge.Debt1 - autohedge.Interest1
@@ -273,6 +286,7 @@ func main() {
 			autohedge.Liquidity = (amount0 + move1) * (amount1 + move1)
 			autohedge.Debt1 += ((2 + swapRate) * delta1)
 			autohedge.Fees0 += move0 * swapRate
+			autohedge.Cost0 += (swapGas * reborrowGas * removeGas) * gasPrice * price
 		}
 
 		log.Info().
