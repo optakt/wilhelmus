@@ -113,7 +113,7 @@ func main() {
 
 	pflag.Parse()
 
-	log := zerolog.New(os.Stderr)
+	log := zerolog.New(os.Stdout)
 	level, err := zerolog.ParseLevel(logLevel)
 	if err != nil {
 		log.Fatal().Err(err).Str("log_level", logLevel).Msg("invalid log level")
