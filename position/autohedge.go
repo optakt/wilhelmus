@@ -6,6 +6,8 @@ import (
 
 type Autohedge struct {
 	Liquidity  float64
+	Profit0    float64
+	Profit1    float64
 	Principal0 float64
 	Yield0     float64
 	Debt1      float64

@@ -6,6 +6,8 @@ import (
 
 type Uniswap struct {
 	Liquidity float64
+	Profit0   float64
+	Profit1   float64
 	Fees0     float64
 	Cost0     float64
 }

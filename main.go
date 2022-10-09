@@ -127,9 +127,17 @@ func main() {
 	client := influxdb2.NewClientWithOptions(influxAPI, influxToken,
 		influxdb2.DefaultOptions().SetHTTPRequestTimeout(uint(influxTimeout.Seconds())),
 	)
-	influx := client.QueryAPI(influxOrg)
+
+	outbound := client.WriteAPI(influxOrg, influxBucketPositions)
+	go func() {
+		for err := range outbound.Errors() {
+			log.Fatal().Err(err).Msg("encountered InfluxDB error")
+		}
+	}()
+
+	inbound := client.QueryAPI(influxOrg)
 	query := fmt.Sprintf(statement, startTime, endTime)
-	result, err := influx.Query(context.Background(), query)
+	result, err := inbound.Query(context.Background(), query)
 	if err != nil {
 		log.Fatal().Err(err).Msg("could not execute query")
 	}
@@ -148,9 +156,6 @@ func main() {
 	reserve0 := values["reserve0"].(float64)
 	reserve1 := values["reserve1"].(float64)
 	price := reserve0 / reserve1
-
-	// volume0 := values["volume0"].(float64) // won't make a profit until...
-	// volume1 := values["volume1"].(float64) // ...the positions are created
 
 	gasPrice1, err := station.Gasprice(timestamp)
 	if err != nil {
@@ -195,6 +200,10 @@ func main() {
 		Fees0:      fee0 + fee1*price,
 		Cost0:      gasAuto * gasPrice1 * price,
 	}
+
+	writeHold(timestamp, price, hold, outbound)
+	writeUniswap(timestamp, price, uniswap, outbound)
+	writeAutohedge(timestamp, price, autohedge, outbound)
 
 	last := timestamp
 	for result.Next() {
@@ -253,6 +262,9 @@ func main() {
 		shareUni := uniswap.Liquidity / liquidity
 		profitUni0 := shareUni * volume0
 		profitUni1 := shareUni * volume1
+
+		uniswap.Profit0 += profitUni0
+		uniswap.Profit1 += profitUni1
 		uniswap.Liquidity = (uni0 + profitUni0) * (uni1 + profitUni1)
 
 		log.Debug().
@@ -269,6 +281,9 @@ func main() {
 		shareAuto := autohedge.Liquidity / liquidity
 		profitAuto0 := shareAuto * volume0
 		profitAuto1 := shareAuto * volume1
+
+		autohedge.Profit0 += profitAuto0
+		autohedge.Profit1 += profitAuto1
 		autohedge.Liquidity = (auto0 + profitAuto0) * (auto1 + profitAuto1)
 
 		log.Debug().
@@ -293,7 +308,7 @@ func main() {
 
 			autohedge.Liquidity = (position0 - out0) * (position1 - out1)
 			autohedge.Debt1 -= (out0/price + delta1)
-			autohedge.Fees0 += (out0 * swapRate)
+			autohedge.Fees0 += out0 * swapRate
 			autohedge.Cost0 += (swapGas + unborrowGas + addGas) * gasPrice1 * price
 
 			log.Debug().
@@ -316,7 +331,7 @@ func main() {
 
 			autohedge.Liquidity = (position0 + in0) * (position1 + in1)
 			autohedge.Debt1 += (in0/price + delta1*(1+swapRate))
-			autohedge.Fees0 += (in0 * swapRate)
+			autohedge.Fees0 += in0 * swapRate
 			autohedge.Cost0 += (swapGas + reborrowGas + removeGas) * gasPrice1 * price
 
 			log.Debug().
@@ -332,13 +347,16 @@ func main() {
 				Msg("increased debt to rehedge autoswap position")
 		}
 
+		writeHold(timestamp, price, hold, outbound)
+		writeUniswap(timestamp, price, uniswap, outbound)
+		writeAutohedge(timestamp, price, autohedge, outbound)
+
 		log.Info().
 			Float64("price", price*d18/d6).
 			Float64("hold0", hold.Value0(price)/d6).
 			Float64("uniswap0", uniswap.Value0(price)/d6).
 			Float64("autohedge0", autohedge.Value0(price)/d6).
 			Msg("updated position valuations")
-
 	}
 
 	err = result.Err()
