@@ -5,18 +5,18 @@ import (
 )
 
 type Autohedge struct {
-	Liquidity float64 // total liquidity of the position is stable
-	Principal float64 // stable loaned out to gain yield
-	Yield     float64 // stable earned on lending out stable
-	Debt      float64 // volatile borrowed against interest to hedge
-	Interest  float64 // volatile owed on borrowing volatile
-	Fees      float64 // on-chain fees for various DeFi applications
-	Cost      float64 // transaction fees to pay for gas costs
+	Liquidity  float64
+	Principal0 float64
+	Yield0     float64
+	Debt1      float64
+	Interest1  float64
+	Fees0      float64
+	Cost0      float64
 }
 
-func (a *Autohedge) Value(price float64) float64 {
-	position := 2 * math.Sqrt(a.Liquidity*price)
-	liability := (a.Debt + a.Interest) * price
-	overhead := a.Fees + a.Cost
-	return position + a.Yield - liability - overhead
+func (a *Autohedge) Value0(price float64) float64 {
+	position0 := 2 * math.Sqrt(a.Liquidity*price)
+	liability0 := (a.Debt1 + a.Interest1) * price
+	overhead0 := a.Fees0 + a.Cost0
+	return position0 + a.Yield0 - liability0 - overhead0
 }

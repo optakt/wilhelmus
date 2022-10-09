@@ -145,34 +145,34 @@ func main() {
 		log.Fatal().Err(err).Time("timestamp", timestamp).Msg("could not get gas price for timestamp")
 	}
 
-	inputStable := inputValue * d6
+	input0 := inputValue * d6
 
 	hold := position.Hold{
-		Stable:   inputStable / 2 * (1 - swapRate/2),
-		Volatile: inputStable / 2 / price * (1 - swapRate/2),
-		Fees:     inputStable / 2 * swapRate,
-		Cost:     (approveGas + swapGas) * gasPrice * price,
+		Amount0: input0 / 2 * (1 - swapRate/2),
+		Amount1: input0 / 2 / price * (1 - swapRate/2),
+		Fees0:   input0 / 2 * swapRate,
+		Cost0:   (approveGas + swapGas) * gasPrice * price,
 	}
 
 	uniswap := position.Uniswap{
-		Liquidity: hold.Stable * hold.Volatile,
-		Fees:      hold.Fees,
-		Cost:      hold.Cost,
+		Liquidity: hold.Amount0 * hold.Amount1,
+		Fees0:     hold.Fees0,
+		Cost0:     hold.Cost0,
 	}
 
-	amountVol := inputStable / (price * (1 + (flashRate / (1 - swapRate))))
+	amountVol := input0 / (price * (1 + (flashRate / (1 - swapRate))))
 	feeVol := amountVol * flashRate
 	feeStable := flashRate * price / (1 - swapRate)
-	amountStable := inputStable - feeStable
+	amountStable := input0 - feeStable
 
 	autohedge := position.Autohedge{
-		Liquidity: amountStable * amountVol,
-		Principal: amountStable + amountVol*price,
-		Yield:     0,
-		Debt:      amountVol,
-		Interest:  0,
-		Fees:      feeVol*price + feeStable,
-		Cost:      uniswap.Cost + (2*approveGas+flashGas+lendGas+borrowGas)*gasPrice*price,
+		Liquidity:  amountStable * amountVol,
+		Principal0: amountStable + amountVol*price,
+		Yield0:     0,
+		Debt1:      amountVol,
+		Interest1:  0,
+		Fees0:      feeVol*price + feeStable,
+		Cost0:      uniswap.Cost0 + (2*approveGas+flashGas+lendGas+borrowGas)*gasPrice*price,
 	}
 
 	last := timestamp
@@ -201,20 +201,20 @@ func main() {
 		elapsed := timestamp.Sub(last).Seconds()
 
 		realLoanRate := util.CompoundRate(loanRate, uint(elapsed))
-		loanYield := realLoanRate * (autohedge.Principal + autohedge.Yield)
-		autohedge.Yield += loanYield
+		loanYield := realLoanRate * (autohedge.Principal0 + autohedge.Yield0)
+		autohedge.Yield0 += loanYield
 
 		realBorrowRate := util.CompoundRate(borrowRate, uint(elapsed))
-		borrowInterest := realBorrowRate * (autohedge.Debt + autohedge.Interest)
-		autohedge.Interest += borrowInterest
+		borrowInterest := realBorrowRate * (autohedge.Debt1 + autohedge.Interest1)
+		autohedge.Interest1 += borrowInterest
 
 		last = timestamp
 
 		log.Debug().
-			Float64("principal", autohedge.Principal).
-			Float64("yield", autohedge.Yield).
-			Float64("debt", autohedge.Debt).
-			Float64("interest", autohedge.Interest).
+			Float64("principal", autohedge.Principal0).
+			Float64("yield", autohedge.Yield0).
+			Float64("debt", autohedge.Debt1).
+			Float64("interest", autohedge.Interest1).
 			Msg("compounded principal yield and debt interest")
 
 		liquidity := reserve0 * reserve1
@@ -253,33 +253,33 @@ func main() {
 			Float64("liquidity", autohedge.Liquidity).
 			Msg("added profit to autohedge position")
 
-		amount0 := math.Sqrt(autohedge.Liquidity / price)
-		amount1 := autohedge.Liquidity / amount0
+		amount0 := math.Sqrt(uniswap.Liquidity * price)
+		amount1 := uni0 / price
 
 		switch {
 
-		case amount0 < (autohedge.Debt+autohedge.Interest)*(1-rehedgeRatio):
-			delta := autohedge.Debt + autohedge.Interest - amount0
-			amountVol := delta * (1 + swapRate)
-			amountStable := amountVol * price
-			autohedge.Liquidity = (amount0 - amountVol) * (amount1 - amountStable)
-			autohedge.Debt -= (delta + amountVol)
-			autohedge.Fees += amountStable * swapRate
+		case amount0 < (autohedge.Debt1+autohedge.Interest1)*(1-rehedgeRatio):
+			delta1 := autohedge.Debt1 + autohedge.Interest1 - amount1
+			move1 := delta1 * (1 + swapRate)
+			move0 := move1 * price
+			autohedge.Liquidity = (amount0 - move0) * (amount1 - move1)
+			autohedge.Debt1 -= (delta1 + move1)
+			autohedge.Fees0 += move0 * swapRate
 
-		case amount0 > (autohedge.Debt+autohedge.Interest)*(1+rehedgeRatio):
-			delta := amount0 - autohedge.Debt - autohedge.Interest
-			amountVol := delta
-			amountStable := delta * price
-			autohedge.Liquidity = (amount0 + amountVol) * (amount1 + amountStable)
-			autohedge.Debt += ((2 + swapRate) * delta)
-			autohedge.Fees += amountStable * swapRate
+		case amount0 > (autohedge.Debt1+autohedge.Interest1)*(1+rehedgeRatio):
+			delta1 := amount1 - autohedge.Debt1 - autohedge.Interest1
+			move1 := delta1
+			move0 := delta1 * price
+			autohedge.Liquidity = (amount0 + move1) * (amount1 + move1)
+			autohedge.Debt1 += ((2 + swapRate) * delta1)
+			autohedge.Fees0 += move0 * swapRate
 		}
 
 		log.Info().
 			Float64("price", price*d18/d6).
-			Float64("hold", hold.Value(price)/d6).
-			Float64("uniswap", uniswap.Value(price)/d6).
-			Float64("autohedge", autohedge.Value(price)/d6).
+			Float64("hold", hold.Value0(price)/d6).
+			Float64("uniswap", uniswap.Value0(price)/d6).
+			Float64("autohedge", autohedge.Value0(price)/d6).
 			Msg("updated position valuations")
 	}
 
