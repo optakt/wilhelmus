@@ -58,6 +58,7 @@ func writeAutohedge(timestamp time.Time, price float64, autohedge position.Autoh
 		"fees":     autohedge.Fees0 / d6,
 		"cost":     autohedge.Cost0 / d6,
 		"yield":    autohedge.Yield0 / d6,
+		"debt":     autohedge.Debt1 * price / d6,
 		"interest": autohedge.Interest1 * price / d6,
 	}
 
