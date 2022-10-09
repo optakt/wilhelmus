@@ -1,8 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"time"
 
+	"github.com/dustin/go-humanize"
 	"github.com/optakt/wilhelmus/position"
 
 	"github.com/influxdata/influxdb-client-go/v2/api"
@@ -11,9 +13,12 @@ import (
 
 func writeHold(timestamp time.Time, price float64, hold position.Hold, outbound api.WriteAPI) {
 
+	value, prefix := humanize.ComputeSI(float64(hold.Size))
+	size := humanize.Ftoa(value) + prefix
+
 	tags := map[string]string{
 		"chain":    "ethereum",
-		"size":     "1M",
+		"size":     size,
 		"strategy": "hold",
 	}
 	fields := map[string]interface{}{
@@ -28,9 +33,12 @@ func writeHold(timestamp time.Time, price float64, hold position.Hold, outbound 
 
 func writeUniswap(timestamp time.Time, price float64, uniswap position.Uniswap, outbound api.WriteAPI) {
 
+	value, prefix := humanize.ComputeSI(float64(uniswap.Size))
+	size := humanize.Ftoa(value) + prefix
+
 	tags := map[string]string{
 		"chain":    "ethereum",
-		"size":     "1M",
+		"size":     size,
 		"strategy": "uniswap",
 	}
 	fields := map[string]interface{}{
@@ -46,12 +54,17 @@ func writeUniswap(timestamp time.Time, price float64, uniswap position.Uniswap, 
 
 func writeAutohedge(timestamp time.Time, price float64, autohedge position.Autohedge, outbound api.WriteAPI) {
 
+	value, prefix := humanize.ComputeSI(float64(autohedge.Size))
+	size := humanize.Ftoa(value) + prefix
+
+	rehedge := fmt.Sprintf("%d%%", uint64(autohedge.Rehedge*100))
+
 	tags := map[string]string{
 		"chain":    "ethereum",
-		"size":     "1M",
+		"size":     size,
 		"strategy": "autohedge",
 		"leverage": "2x",
-		"rehedge":  "1%",
+		"rehedge":  rehedge,
 	}
 	fields := map[string]interface{}{
 		"value":    autohedge.Value0(price) / d6,

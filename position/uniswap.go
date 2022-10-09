@@ -5,6 +5,7 @@ import (
 )
 
 type Uniswap struct {
+	Size      uint64
 	Liquidity float64
 	Profit0   float64
 	Profit1   float64

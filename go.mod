@@ -3,6 +3,7 @@ module github.com/optakt/wilhelmus
 go 1.19
 
 require (
+	github.com/dustin/go-humanize v1.0.0
 	github.com/influxdata/influxdb-client-go/v2 v2.11.0
 	github.com/rs/zerolog v1.28.0
 	github.com/spf13/pflag v1.0.5

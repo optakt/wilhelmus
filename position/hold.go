@@ -1,6 +1,7 @@
 package position
 
 type Hold struct {
+	Size    uint64
 	Amount0 float64
 	Amount1 float64
 	Fees0   float64

@@ -38,7 +38,7 @@ func main() {
 		writeResults bool
 		gasPrices    string
 
-		inputValue   float64
+		inputValue   uint64
 		startTime    string
 		endTime      string
 		rehedgeRatio float64
@@ -77,7 +77,7 @@ func main() {
 	pflag.BoolVarP(&writeResults, "write-results", "w", false, "whether to write the results back to InfluxDB")
 	pflag.StringVarP(&gasPrices, "gas-prices", "g", "gas-prices.csv", "CSV file for average gas price per day")
 
-	pflag.Float64VarP(&inputValue, "input-value", "i", 1_000_000, "stable coin input amount")
+	pflag.Uint64VarP(&inputValue, "input-value", "i", 1_000_000, "stable coin input amount")
 	pflag.StringVarP(&startTime, "start-time", "s", "2021-10-07T00:00:00Z", "start timestamp for the backtest")
 	pflag.StringVarP(&endTime, "end-time", "e", "2022-10-07T23:59:59Z", "end timestamp for the backtest")
 	pflag.Float64Var(&rehedgeRatio, "rehedge-ratio", 0.01, "ratio between debt and collateral at which we rehedge")
@@ -163,7 +163,7 @@ func main() {
 		log.Fatal().Err(err).Time("timestamp", timestamp).Msg("could not get gas price for timestamp")
 	}
 
-	input0 := inputValue * d6
+	input0 := float64(inputValue) * d6
 
 	swapFee0 := input0 / 2 * swapRate
 	hold0 := (input0 - swapFee0) / 2
@@ -171,6 +171,7 @@ func main() {
 	gasHold := approveGas + swapGas
 
 	hold := position.Hold{
+		Size:    inputValue,
 		Amount0: hold0,
 		Amount1: hold1,
 		Fees0:   swapFee0,
@@ -181,6 +182,7 @@ func main() {
 	gasUni := gasHold + createGas
 
 	uniswap := position.Uniswap{
+		Size:      inputValue,
 		Liquidity: liquidity,
 		Fees0:     hold.Fees0,
 		Cost0:     gasUni * gasPrice1 * price,
@@ -193,6 +195,8 @@ func main() {
 	gasAuto := gasUni + (2*approveGas + flashGas + lendGas + borrowGas)
 
 	autohedge := position.Autohedge{
+		Size:       inputValue,
+		Rehedge:    rehedgeRatio,
 		Liquidity:  auto0 * auto1,
 		Principal0: auto0 + auto1*price,
 		Yield0:     0,
