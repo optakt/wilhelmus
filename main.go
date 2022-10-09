@@ -132,20 +132,13 @@ func main() {
 	record := result.Record()
 	timestamp := record.Time()
 	values := record.Values()
+
 	reserve0 := values["reserve0"].(float64)
 	reserve1 := values["reserve1"].(float64)
-	volume0 := values["volume0"].(float64)
-	volume1 := values["volume1"].(float64)
 	price := reserve0 / reserve1
 
-	log.Debug().
-		Time("timestamp", timestamp).
-		Float64("reserve0", reserve0).
-		Float64("reserve1", reserve1).
-		Float64("volume0", volume0).
-		Float64("volume1", volume1).
-		Float64("price", price).
-		Msg("datapoint streamed")
+	// volume0 := values["volume0"].(float64) // won't make a profit until...
+	// volume1 := values["volume1"].(float64) // ...the positions are created
 
 	gasPrice, err := station.Gasprice(timestamp)
 	if err != nil {
@@ -158,13 +151,13 @@ func main() {
 		Stable:   inputStable / 2 * (1 - swapRate/2),
 		Volatile: inputStable / 2 / price * (1 - swapRate/2),
 		Fees:     inputStable / 2 * swapRate,
-		Cost:     (2*approveGas + swapGas) * gasPrice * price,
+		Cost:     (approveGas + swapGas) * gasPrice * price,
 	}
 
 	uniswap := position.Uniswap{
 		Liquidity: hold.Stable * hold.Volatile,
 		Fees:      hold.Fees,
-		Cost:      hold.Cost + (2*approveGas+swapGas+provideGas)*gasPrice*price,
+		Cost:      hold.Cost,
 	}
 
 	amountVol := inputStable / (price * (1 + (flashRate / (1 - swapRate))))
@@ -173,13 +166,13 @@ func main() {
 	amountStable := inputStable - feeStable
 
 	autohedge := position.Autohedge{
-		Liquidity: (amountStable * amountVol),
+		Liquidity: amountStable * amountVol,
 		Principal: amountStable + amountVol*price,
 		Yield:     0,
 		Debt:      amountVol,
 		Interest:  0,
 		Fees:      feeVol*price + feeStable,
-		Cost:      uniswap.Cost + (4*approveGas+flashGas+lendGas+borrowGas)*gasPrice*price,
+		Cost:      uniswap.Cost + (2*approveGas+flashGas+lendGas+borrowGas)*gasPrice*price,
 	}
 
 	last := timestamp
@@ -188,11 +181,13 @@ func main() {
 		record := result.Record()
 		timestamp := record.Time()
 		values := record.Values()
+
 		reserve0 := values["reserve0"].(float64)
 		reserve1 := values["reserve1"].(float64)
+		price := reserve0 / reserve1
+
 		volume0 := values["volume0"].(float64)
 		volume1 := values["volume1"].(float64)
-		price := reserve0 / reserve1
 
 		log.Debug().
 			Time("timestamp", timestamp).
@@ -201,7 +196,7 @@ func main() {
 			Float64("volume0", volume0).
 			Float64("volume1", volume1).
 			Float64("price", price).
-			Msg("datapoint extracted from record")
+			Msg("extracted datapoint from record")
 
 		elapsed := timestamp.Sub(last).Seconds()
 
@@ -220,25 +215,62 @@ func main() {
 			Float64("yield", autohedge.Yield).
 			Float64("debt", autohedge.Debt).
 			Float64("interest", autohedge.Interest).
-			Msg("yield and interest compounded")
+			Msg("compounded principal yield and debt interest")
 
-		volatile := math.Sqrt(autohedge.Liquidity / price)
-		stable := autohedge.Liquidity / volatile
+		liquidity := reserve0 * reserve1
+
+		log.Debug().
+			Float64("uniswap", uniswap.Liquidity).
+			Float64("autohedge", autohedge.Liquidity).
+			Float64("liquidity", liquidity).
+			Msg("preparing to calculate uniswap returns")
+
+		shareUni := uniswap.Liquidity / liquidity
+		profitUni0 := shareUni * volume0
+		profitUni1 := shareUni * volume1
+		uni0 := math.Sqrt(uniswap.Liquidity * price)
+		uni1 := uni0 / price
+		uniswap.Liquidity = (uni0 + profitUni0) * (uni1 + profitUni1)
+
+		log.Debug().
+			Float64("share", shareUni).
+			Float64("profit0", profitUni0).
+			Float64("profit1", profitUni1).
+			Float64("liquidity", uniswap.Liquidity).
+			Msg("added profit to uniswap position")
+
+		shareAuto := autohedge.Liquidity / liquidity
+		profitAuto0 := shareAuto * volume0
+		profitAuto1 := shareAuto * volume1
+		auto0 := math.Sqrt(autohedge.Liquidity * price)
+		auto1 := auto0 / price
+		autohedge.Liquidity = (auto0 + profitAuto0) * (auto1 + profitAuto1)
+
+		log.Debug().
+			Float64("share", shareAuto).
+			Float64("profit0", profitAuto0).
+			Float64("profit1", profitAuto1).
+			Float64("liquidity", autohedge.Liquidity).
+			Msg("added profit to autohedge position")
+
+		amount0 := math.Sqrt(autohedge.Liquidity / price)
+		amount1 := autohedge.Liquidity / amount0
+
 		switch {
 
-		case volatile < (autohedge.Debt+autohedge.Interest)*(1-rehedgeRatio):
-			delta := autohedge.Debt + autohedge.Interest - volatile
+		case amount0 < (autohedge.Debt+autohedge.Interest)*(1-rehedgeRatio):
+			delta := autohedge.Debt + autohedge.Interest - amount0
 			amountVol := delta * (1 + swapRate)
 			amountStable := amountVol * price
-			autohedge.Liquidity = (volatile - amountVol) * (stable - amountStable)
+			autohedge.Liquidity = (amount0 - amountVol) * (amount1 - amountStable)
 			autohedge.Debt -= (delta + amountVol)
 			autohedge.Fees += amountStable * swapRate
 
-		case volatile > (autohedge.Debt+autohedge.Interest)*(1+rehedgeRatio):
-			delta := volatile - autohedge.Debt - autohedge.Interest
+		case amount0 > (autohedge.Debt+autohedge.Interest)*(1+rehedgeRatio):
+			delta := amount0 - autohedge.Debt - autohedge.Interest
 			amountVol := delta
 			amountStable := delta * price
-			autohedge.Liquidity = (volatile + amountVol) * (stable + amountStable)
+			autohedge.Liquidity = (amount0 + amountVol) * (amount1 + amountStable)
 			autohedge.Debt += ((2 + swapRate) * delta)
 			autohedge.Fees += amountStable * swapRate
 		}
@@ -248,7 +280,7 @@ func main() {
 			Float64("hold", hold.Value(price)/d6).
 			Float64("uniswap", uniswap.Value(price)/d6).
 			Float64("autohedge", autohedge.Value(price)/d6).
-			Msg("position values updated")
+			Msg("updated position valuations")
 	}
 
 	err = result.Err()
