@@ -270,7 +270,7 @@ func main() {
 
 		switch {
 
-		case amount0 < (autohedge.Debt1+autohedge.Interest1)*(1-rehedgeRatio):
+		case amount1 < (autohedge.Debt1+autohedge.Interest1)*(1-rehedgeRatio):
 			delta1 := autohedge.Debt1 + autohedge.Interest1 - amount1
 			move1 := delta1 * (1 + swapRate)
 			move0 := move1 * price
@@ -279,7 +279,7 @@ func main() {
 			autohedge.Fees0 += move0 * swapRate
 			autohedge.Cost0 += (swapGas + unborrowGas + addGas) * gasPrice * price
 
-		case amount0 > (autohedge.Debt1+autohedge.Interest1)*(1+rehedgeRatio):
+		case amount1 > (autohedge.Debt1+autohedge.Interest1)*(1+rehedgeRatio):
 			delta1 := amount1 - autohedge.Debt1 - autohedge.Interest1
 			move1 := delta1
 			move0 := delta1 * price
