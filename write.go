@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/dustin/go-humanize"
@@ -57,7 +56,7 @@ func writeAutohedge(timestamp time.Time, price float64, autohedge position.Autoh
 	value, prefix := humanize.ComputeSI(float64(autohedge.Size))
 	size := humanize.Ftoa(value) + prefix
 
-	rehedge := fmt.Sprintf("%d%%", uint64(autohedge.Rehedge*100))
+	rehedge := humanize.Ftoa(autohedge.Rehedge*100) + "%"
 
 	tags := map[string]string{
 		"strategy": "autohedge",
