@@ -17,9 +17,9 @@ func writeHold(timestamp time.Time, price float64, hold position.Hold, outbound 
 	size := humanize.Ftoa(value) + prefix
 
 	tags := map[string]string{
+		"strategy": "hold",
 		"chain":    "ethereum",
 		"size":     size,
-		"strategy": "hold",
 	}
 	fields := map[string]interface{}{
 		"value": hold.Value0(price) / d6,
@@ -37,9 +37,9 @@ func writeUniswap(timestamp time.Time, price float64, uniswap position.Uniswap, 
 	size := humanize.Ftoa(value) + prefix
 
 	tags := map[string]string{
+		"strategy": "uniswap",
 		"chain":    "ethereum",
 		"size":     size,
-		"strategy": "uniswap",
 	}
 	fields := map[string]interface{}{
 		"value":  uniswap.Value0(price) / d6,
@@ -60,9 +60,9 @@ func writeAutohedge(timestamp time.Time, price float64, autohedge position.Autoh
 	rehedge := fmt.Sprintf("%d%%", uint64(autohedge.Rehedge*100))
 
 	tags := map[string]string{
+		"strategy": "autohedge",
 		"chain":    "ethereum",
 		"size":     size,
-		"strategy": "autohedge",
 		"leverage": "2x",
 		"rehedge":  rehedge,
 	}
