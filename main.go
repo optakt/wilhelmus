@@ -277,7 +277,7 @@ func main() {
 			autohedge.Liquidity = (amount0 - move0) * (amount1 - move1)
 			autohedge.Debt1 -= (delta1 + move1)
 			autohedge.Fees0 += move0 * swapRate
-			autohedge.Cost0 += (swapGas * unborrowGas * addGas) * gasPrice * price
+			autohedge.Cost0 += (swapGas + unborrowGas + addGas) * gasPrice * price
 
 		case amount0 > (autohedge.Debt1+autohedge.Interest1)*(1+rehedgeRatio):
 			delta1 := amount1 - autohedge.Debt1 - autohedge.Interest1
@@ -286,7 +286,7 @@ func main() {
 			autohedge.Liquidity = (amount0 + move1) * (amount1 + move1)
 			autohedge.Debt1 += ((2 + swapRate) * delta1)
 			autohedge.Fees0 += move0 * swapRate
-			autohedge.Cost0 += (swapGas * reborrowGas * removeGas) * gasPrice * price
+			autohedge.Cost0 += (swapGas + reborrowGas + removeGas) * gasPrice * price
 		}
 
 		log.Info().
