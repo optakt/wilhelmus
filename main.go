@@ -75,7 +75,7 @@ func main() {
 	pflag.StringVarP(&logLevel, "log-level", "l", "info", "Zerolog logger logging message severity")
 	pflag.StringVarP(&gasPrices, "gas-prices", "g", "gas-prices.csv", "CSV file for average gas price per day")
 
-	pflag.Float64VarP(&inputValue, "input-value", "i", 100_000, "stable coin input amount")
+	pflag.Float64VarP(&inputValue, "input-value", "i", 1_000_000, "stable coin input amount")
 	pflag.StringVarP(&startTime, "start-time", "s", "2021-10-07T00:00:00Z", "start timestamp for the backtest")
 	pflag.StringVarP(&endTime, "end-time", "e", "2022-10-07T23:59:59Z", "end timestamp for the backtest")
 	pflag.Float64Var(&rehedgeRatio, "rehedge-ratio", 0.01, "ratio between debt and collateral at which we rehedge")
