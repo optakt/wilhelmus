@@ -113,8 +113,7 @@ func main() {
 
 	pflag.Parse()
 
-	zerolog.TimestampFunc = func() time.Time { return time.Now().UTC() }
-	log := zerolog.New(os.Stderr).With().Timestamp().Logger()
+	log := zerolog.New(os.Stderr)
 	level, err := zerolog.ParseLevel(logLevel)
 	if err != nil {
 		log.Fatal().Err(err).Str("log_level", logLevel).Msg("invalid log level")
@@ -203,6 +202,14 @@ func main() {
 		Cost0:      gasAuto * gasPrice1 * price,
 	}
 
+	log.Info().
+		Time("timestamp", timestamp).
+		Float64("price", price).
+		Float64("hold", hold.Value0(price)/d6).
+		Float64("uniswap", uniswap.Value0(price)/d6).
+		Float64("autohedge", autohedge.Value0(price)/d6).
+		Msg("original positions created")
+
 	if writeResults {
 		writeHold(timestamp, price, hold, outbound)
 		writeUniswap(timestamp, price, uniswap, outbound)
@@ -223,8 +230,11 @@ func main() {
 		volume0 := values["volume0"].(float64)
 		volume1 := values["volume1"].(float64)
 
-		log.Debug().
+		log := log.With().
 			Time("timestamp", timestamp).
+			Logger()
+
+		log.Debug().
 			Float64("reserve0", reserve0).
 			Float64("reserve1", reserve1).
 			Float64("volume0", volume0).
