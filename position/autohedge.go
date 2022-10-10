@@ -1,26 +1,41 @@
 package position
 
 import (
-	"math"
+	"math/big"
 )
 
 type Autohedge struct {
-	Size       uint64
-	Rehedge    float64
-	Liquidity  float64
-	Profit0    float64
-	Profit1    float64
-	Principal0 float64
-	Yield0     float64
-	Debt1      float64
-	Interest1  float64
-	Fees0      float64
-	Cost0      float64
+	Size       *big.Int
+	Rehedge    *big.Int
+	Liquidity  *big.Int
+	Profit0    *big.Int
+	Profit1    *big.Int
+	Principal0 *big.Int
+	Yield0     *big.Int
+	Debt1      *big.Int
+	Interest1  *big.Int
+	Fees0      *big.Int
+	Cost0      *big.Int
 }
 
-func (a *Autohedge) Value0(price float64) float64 {
-	position0 := 2 * math.Sqrt(a.Liquidity*price)
-	liability0 := (a.Debt1 + a.Interest1) * price
-	overhead0 := a.Fees0 + a.Cost0
-	return position0 + a.Yield0 - liability0 - overhead0
+func (a *Autohedge) Value0(price *big.Int) *big.Int {
+
+	big2 := big.NewInt(2)
+
+	debt0 := big.NewInt(0)
+	debt0.Mul(a.Debt1, price)
+
+	interest0 := big.NewInt(0)
+	interest0.Mul(a.Interest1, price)
+
+	value0 := big.NewInt(0)
+	value0.Mul(a.Liquidity, price)
+	value0.Mul(value0, big2)
+	value0.Add(value0, a.Yield0)
+	value0.Sub(value0, debt0)
+	value0.Sub(value0, interest0)
+	value0.Sub(value0, a.Fees0)
+	value0.Sub(value0, a.Cost0)
+
+	return value0
 }

@@ -1,13 +1,27 @@
 package position
 
+import (
+	"math/big"
+)
+
 type Hold struct {
-	Size    uint64
-	Amount0 float64
-	Amount1 float64
-	Fees0   float64
-	Cost0   float64
+	Size    *big.Int
+	Amount0 *big.Int
+	Amount1 *big.Int
+	Fees0   *big.Int
+	Cost0   *big.Int
 }
 
-func (h Hold) Value0(price float64) float64 {
-	return h.Amount0 + h.Amount1*price - h.Fees0 - h.Cost0
+func (h Hold) Value0(price *big.Int) *big.Int {
+
+	amount0 := big.NewInt(0)
+	amount0.Mul(h.Amount1, price)
+
+	value0 := big.NewInt(0)
+	value0.Add(value0, h.Amount0)
+	value0.Add(value0, amount0)
+	value0.Sub(value0, h.Fees0)
+	value0.Sub(value0, h.Cost0)
+
+	return value0
 }
