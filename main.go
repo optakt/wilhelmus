@@ -192,6 +192,11 @@ func main() {
 	timestamp := record.Time()
 	values := record.Values()
 
+	// amountInMultplied := amountIn * 997
+	// numerator := amountInMultiplied * reserveOut
+	// denominator := resorveIn * 1000 + amountInMultiplied
+	// amountOut := numerator / denominator
+
 	// The values from InfluxDB come as hex-encoded strings for now, so convert
 	// them back to the original big integers read from the contracts.
 	// NOTE: this is because InfluxDB doesn't support number above 64 bits, and
@@ -262,7 +267,7 @@ func main() {
 	costUni0.Add(costUni0, costCreate0)
 
 	uniswap := position.Uniswap{
-		Size:      inputValue,
+		Size:      input0,
 		Liquidity: liquidityUni,
 		Fees0:     feesUni0,
 		Cost0:     costUni0,
@@ -391,7 +396,7 @@ func main() {
 			Float64("price", price).
 			Msg("extracted datapoint from record")
 
-		elapsed := timestamp.Sub(last).Seconds()
+		seconds := timestamp.Sub(last).Seconds()
 
 		realLoanRate := util.CompoundRate(loanRate, uint(elapsed))
 		yieldDelta0 := realLoanRate * (autohedge.Principal0 + autohedge.Yield0)
@@ -461,6 +466,13 @@ func main() {
 		position0 := math.Sqrt(autohedge.Liquidity * price)
 		position1 := position0 / price
 
+		// Uniswap v2 swap:
+		// amountInMultplied := amountIn * 997
+		// numerator := amountInMultiplied * reserveOut
+		// denominator := resorveIn * 1000 + amountInMultiplied
+		// amountOut := numerator / denominator
+		// amountIn - amountOut = fee => solve?
+
 		switch {
 
 		case position1 < (autohedge.Debt1+autohedge.Interest1)*(1-rehedgeRatio):
@@ -472,7 +484,7 @@ func main() {
 			autohedge.Liquidity = (position0 - out0) * (position1 - out1)
 			autohedge.Debt1 -= (out0/price + delta1)
 			autohedge.Fees0 += out0 * swapRate
-			autohedge.Cost0 += (swapGas + unborrowGas + addGas) * gasPrice1 * price
+			autohedge.Cost0 += (swapGas + decreaseGas + addGas) * gasPrice1 * price
 
 			log.Debug().
 				Float64("position0", position0).
@@ -495,7 +507,7 @@ func main() {
 			autohedge.Liquidity = (position0 + in0) * (position1 + in1)
 			autohedge.Debt1 += (in0/price + delta1*(1+swapRate))
 			autohedge.Fees0 += in0 * swapRate
-			autohedge.Cost0 += (swapGas + reborrowGas + removeGas) * gasPrice1 * price
+			autohedge.Cost0 += (swapGas + increaseGas + removeGas) * gasPrice1 * price
 
 			log.Debug().
 				Float64("position0", position0).
