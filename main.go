@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
 	"math"
 	"math/big"
@@ -18,6 +17,7 @@ import (
 	"github.com/optakt/wilhelmus/b"
 	"github.com/optakt/wilhelmus/position"
 	"github.com/optakt/wilhelmus/station"
+	"github.com/optakt/wilhelmus/uniswap"
 )
 
 const (
@@ -192,65 +192,43 @@ func main() {
 	timestamp := record.Time()
 	values := record.Values()
 
-	// amountInMultplied := amountIn * 997
-	// numerator := amountInMultiplied * reserveOut
-	// denominator := resorveIn * 1000 + amountInMultiplied
-	// amountOut := numerator / denominator
-
 	// The values from InfluxDB come as hex-encoded strings for now, so convert
 	// them back to the original big integers read from the contracts.
 	// NOTE: this is because InfluxDB doesn't support number above 64 bits, and
 	// with `float64` we get too much imprecision. QuestDB supports 256-bit
 	// integers and might be the better option.
-	reserve0hex := values["reserve0"].(string)
-	reserve1hex := values["reserve1"].(string)
+	rs0 := values["reserve0"].(string)
+	rs1 := values["reserve1"].(string)
 
-	reserve0bytes, err := hex.DecodeString(reserve0hex)
-	if err != nil {
-		log.Fatal().Err(err).Msg("could not decode reserve0")
-	}
-	reserve1bytes, err := hex.DecodeString(reserve1hex)
-	if err != nil {
-		log.Fatal().Err(err).Msg("could not decode reserve1")
-	}
-
-	reserve0 := big.NewInt(0).SetBytes(reserve0bytes)
-	reserve1 := big.NewInt(0).SetBytes(reserve1bytes)
-
-	// The price is a ratio that can be smaller than zero.
-	// TODO: check what precision Uniswap uses here.
-	price := big.NewInt(0).Set(reserve0)
-	price.Mul(price, b.E18)
-	price.Div(price, reserve1)
+	reserve0 := b.FromHex(rs0)
+	reserve1 := b.FromHex(rs1)
 
 	gasPrice1, err := station.Gasprice(timestamp)
 	if err != nil {
 		log.Fatal().Err(err).Time("timestamp", timestamp).Msg("could not get gas price for timestamp")
 	}
 
-	feesHold0 := big.NewInt(0).Set(input0)
-	feesHold0.Div(feesHold0, b.D2)
-	feesHold0.Mul(feesHold0, swapRate)
-	feesHold0.Div(feesHold0, b.E27)
+	var swapping0, hold0, hold1 *big.Int
+	half0 := big.NewInt(0).Div(input0, b.D2)
+	for swapping0 = half0; swapping0.Cmp(input0) < 0; swapping0.Add(swapping0, b.D1) {
+		hold1 = uniswap.GetAmountOut(swapping0, reserve0, reserve1)
+		hold0 = uniswap.Quote(hold1, reserve1, reserve0)
+		total := big.NewInt(0).Add(swapping0, hold0)
+		if total.Cmp(input0) == 0 {
+			break
+		}
+	}
+	fee0 := big.NewInt(0).Sub(swapping0, hold0)
 
-	hold0 := big.NewInt(0).Set(input0)
-	hold0.Sub(hold0, input0)
-	hold0.Div(hold0, b.D2)
-
-	hold1 := big.NewInt(0).Set(hold0)
-	hold1.Mul(hold1, b.E18)
-	hold1.Div(hold0, price)
-
-	costHold0 := big.NewInt(0).Set(approveGas)
-	costHold0.Add(costHold0, swapGas)
-	costHold0.Mul(costHold0, gasPrice1)
-	costHold0.Mul(costHold0, price)
+	costHold1 := big.NewInt(0).Add(approveGas, swapGas)
+	costHold1.Mul(costHold1, gasPrice1)
+	costHold0 := uniswap.Quote(costHold1, reserve1, reserve0)
 
 	hold := position.Hold{
 		Size:    input0,
 		Amount0: hold0,
 		Amount1: hold1,
-		Fees0:   feesHold0,
+		Fees0:   fee0,
 		Cost0:   costHold0,
 	}
 
@@ -348,15 +326,13 @@ func main() {
 
 		rs0 := values["reserve0"].(string)
 		rs1 := values["reserve1"].(string)
+		vs0 := values["volume0"].(string)
+		vs1 := values["volume1"].(string)
 
 		reserve0 := b.FromHex(rs0)
 		reserve1 := b.FromHex(rs1)
-
-		s0 := values["volume0"].(string)
-		s1 := values["volume1"].(string)
-
-		volume0 := b.FromHex(s0)
-		volume1 := b.FromHex(s1)
+		volume0 := b.FromHex(vs0)
+		volume1 := b.FromHex(vs1)
 
 		log := log.With().
 			Time("timestamp", timestamp).
@@ -402,8 +378,10 @@ func main() {
 			Float64("autohedge", b.ToFloat(autohedge.Liquidity, 0)).
 			Msg("preparing to calculate uniswap returns")
 
-		uni0 := math.Sqrt(uniswap.Liquidity * price)
-		uni1 := uni0 / price
+		uni0 := big.NewInt(0).Mul(uniswap.Liquidity, price)
+		uni0.Sqrt(uni0)
+		uni1 := big.NewInt(0).Div(uni0, price)
+
 		shareUni := uniswap.Liquidity / liquidity
 		profitUni0 := shareUni * volume0
 		profitUni1 := shareUni * volume1
