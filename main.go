@@ -208,13 +208,20 @@ func main() {
 		log.Fatal().Err(err).Time("timestamp", timestamp).Msg("could not get gas price for timestamp")
 	}
 
-	var swapping0, hold0, hold1 *big.Int
-	half0 := big.NewInt(0).Div(input0, b.D2)
-	for swapping0 = half0; swapping0.Cmp(input0) < 0; swapping0.Add(swapping0, b.D1) {
+	var hold0, hold1 *big.Int
+	swapping0 := big.NewInt(0).Div(input0, b.D2)
+	swapping0.Mul(swapping0, b.D2000)
+	swapping0.Div(swapping0, b.D1997)
+	for {
 		hold1 = uniswap.GetAmountOut(swapping0, reserve0, reserve1)
 		hold0 = uniswap.Quote(hold1, reserve1, reserve0)
-		total := big.NewInt(0).Add(swapping0, hold0)
-		if total.Cmp(input0) == 0 {
+		total0 := big.NewInt(0).Add(swapping0, hold0)
+		switch {
+		case total0.Cmp(input0) < 0:
+			swapping0.Add(swapping0, b.D1)
+		case total0.Cmp(input0) > 0:
+			swapping0.Sub(swapping0, b.D1)
+		default:
 			break
 		}
 	}

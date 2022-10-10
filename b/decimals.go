@@ -18,5 +18,7 @@ var (
 	D365  = big.NewInt(365)
 	D997  = big.NewInt(997)
 	D1000 = big.NewInt(1000)
+	D1997 = big.NewInt(1997)
+	D2000 = big.NewInt(2000)
 	D3600 = big.NewInt(3600)
 )
