@@ -22,14 +22,14 @@ func (a *Autohedge) Value0(price *big.Int) *big.Int {
 
 	big2 := big.NewInt(2)
 
-	debt0 := big.NewInt(0)
-	debt0.Mul(a.Debt1, price)
+	debt0 := big.NewInt(0).Set(a.Debt1)
+	debt0.Mul(debt0, price)
 
-	interest0 := big.NewInt(0)
-	interest0.Mul(a.Interest1, price)
+	interest0 := big.NewInt(0).Set(a.Interest1)
+	interest0.Mul(interest0, price)
 
-	value0 := big.NewInt(0)
-	value0.Mul(a.Liquidity, price)
+	value0 := big.NewInt(0).Set(a.Liquidity)
+	value0.Mul(value0, price)
 	value0.Mul(value0, big2)
 	value0.Add(value0, a.Yield0)
 	value0.Sub(value0, debt0)

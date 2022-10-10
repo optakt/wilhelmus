@@ -14,11 +14,10 @@ type Hold struct {
 
 func (h Hold) Value0(price *big.Int) *big.Int {
 
-	amount0 := big.NewInt(0)
-	amount0.Mul(h.Amount1, price)
+	amount0 := big.NewInt(0).Set(h.Amount1)
+	amount0.Mul(amount0, price)
 
-	value0 := big.NewInt(0)
-	value0.Add(value0, h.Amount0)
+	value0 := big.NewInt(0).Set(h.Amount0)
 	value0.Add(value0, amount0)
 	value0.Sub(value0, h.Fees0)
 	value0.Sub(value0, h.Cost0)

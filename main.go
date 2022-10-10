@@ -14,14 +14,10 @@ import (
 
 	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
 
+	"github.com/optakt/wilhelmus/b"
 	"github.com/optakt/wilhelmus/position"
 	"github.com/optakt/wilhelmus/station"
 	"github.com/optakt/wilhelmus/util"
-)
-
-const (
-	d6  = float64(1_000_000)
-	d18 = float64(1_000_000_000_000_000_000)
 )
 
 const (
@@ -43,7 +39,7 @@ func main() {
 		inputValue   uint64
 		startTime    string
 		endTime      string
-		rehedgeRatio float64
+		rehedgeRatio uint64
 
 		influxAPI             string
 		influxToken           string
@@ -52,30 +48,28 @@ func main() {
 		influxBucketUniswap   string
 		influxBucketPositions string
 
-		swapRate   float64
-		flashRate  float64
-		loanRate   float64
-		borrowRate float64
+		flagSwapRate   uint64
+		flagFlashRate  uint64
+		flagLoanRate   uint64
+		flagBorrowRate uint64
 
-		approveGas float64
-		swapGas    float64
-		flashGas   float64
+		approveGas uint64
+		swapGas    uint64
+		flashGas   uint64
 
-		createGas float64
-		addGas    float64
-		removeGas float64
-		closeGas  float64
+		createGas uint64
+		addGas    uint64
+		removeGas uint64
+		closeGas  uint64
 
-		lendGas  float64
-		claimGas float64
+		lendGas  uint64
+		claimGas uint64
 
-		borrowGas   float64
-		reborrowGas float64
-		unborrowGas float64
-		repayGas    float64
+		borrowGas   uint64
+		reborrowGas uint64
+		unborrowGas uint64
+		repayGas    uint64
 	)
-
-	pflag.CommandLine.SortFlags = false
 
 	pflag.StringVarP(&logLevel, "log-level", "l", "info", "Zerolog logger logging message severity")
 	pflag.BoolVarP(&writeResults, "write-results", "w", false, "whether to write the results back to InfluxDB")
@@ -84,36 +78,36 @@ func main() {
 	pflag.Uint64VarP(&inputValue, "input-value", "i", 1_000_000, "stable coin input amount")
 	pflag.StringVarP(&startTime, "start-time", "s", "2021-10-07T00:00:00Z", "start timestamp for the backtest")
 	pflag.StringVarP(&endTime, "end-time", "e", "2022-10-07T23:59:59Z", "end timestamp for the backtest")
-	pflag.Float64VarP(&rehedgeRatio, "rehedge-ratio", "r", 0.01, "ratio between debt and collateral at which we rehedge")
+	pflag.Uint64VarP(&rehedgeRatio, "rehedge-ratio", "r", 100, "ratio between debt and collateral at which we rehedge (in 1/10000)")
 
 	pflag.StringVarP(&influxAPI, "influx-api", "a", "https://eu-central-1-1.aws.cloud2.influxdata.com", "InfluxDB API URL")
-	pflag.StringVarP(&influxToken, "influx-token", "t", "3Lq2o0e6-NmfpXK_UQbPqknKgQUbALMdNz86Ojhpm6dXGqGnCuEYGZijTMGhP82uxLfoWiWZRS2Vls0n4dZAjQ==", "InfluxDB authentication token")
+	pflag.StringVarP(&influxToken, "influx-token", "t", "", "InfluxDB authentication token")
 	pflag.StringVarP(&influxOrg, "influx-org", "o", "optakt", "InfluxDB organization name")
 	pflag.DurationVarP(&influxTimeout, "influx-timeout", "u", 15*time.Minute, "InfluxDB query HTTP request timeout")
 	pflag.StringVar(&influxBucketUniswap, "influx-bucket-uniswap", "uniswap", "InfluxDB bucket name for Uniswap metrics")
 	pflag.StringVar(&influxBucketPositions, "influx-bucket-positions", "positions", "InfluxDB bucket for position values")
 
-	pflag.Float64Var(&swapRate, "swap-rate", 0.003, "fee rate for asset swap")
-	pflag.Float64Var(&flashRate, "flash-rate", 0.0009, "fee rate for flash loan")
-	pflag.Float64Var(&loanRate, "lend-rate", 0.005, "interest rate for lending asset")
-	pflag.Float64Var(&borrowRate, "borrow-rate", 0.025, "interest rate for borrowing asset")
+	pflag.Uint64Var(&flagSwapRate, "swap-rate", 30, "fee rate for asset swap (in 1/10000)")
+	pflag.Uint64Var(&flagFlashRate, "flash-rate", 9, "fee rate for flash loan (in 1/10000)")
+	pflag.Uint64Var(&flagLoanRate, "lend-rate", 50, "interest rate for lending asset (in 1/10000)")
+	pflag.Uint64Var(&flagBorrowRate, "borrow-rate", 250, "interest rate for borrowing asset (in 1/10000)")
 
-	pflag.Float64Var(&approveGas, "approve-gas", 24102, "gas cost for transfer approval")
-	pflag.Float64Var(&swapGas, "swap-gas", 181133, "gas cost for asset swap")
-	pflag.Float64Var(&flashGas, "flash-gas", 204493, "gas cost for flash loan")
+	pflag.Uint64Var(&approveGas, "approve-gas", 24102, "gas cost for transfer approval")
+	pflag.Uint64Var(&swapGas, "swap-gas", 181133, "gas cost for asset swap")
+	pflag.Uint64Var(&flashGas, "flash-gas", 204493, "gas cost for flash loan")
 
-	pflag.Float64Var(&createGas, "provide-gas", 157880, "gas cost for creating liquidity position")
-	pflag.Float64Var(&addGas, "add-gas", 130682, "gas cost for adding liquidity")
-	pflag.Float64Var(&removeGas, "remove-gas", 161841, "gas cost to remove liquidity")
-	pflag.Float64Var(&closeGas, "close-gas", 207111, "gas cost for close liquidity position")
+	pflag.Uint64Var(&createGas, "provide-gas", 157880, "gas cost for creating liquidity position")
+	pflag.Uint64Var(&addGas, "add-gas", 130682, "gas cost for adding liquidity")
+	pflag.Uint64Var(&removeGas, "remove-gas", 161841, "gas cost to remove liquidity")
+	pflag.Uint64Var(&closeGas, "close-gas", 207111, "gas cost for close liquidity position")
 
-	pflag.Float64Var(&lendGas, "lend-gas", 217479, "gas cost for lending asset")
-	pflag.Float64Var(&claimGas, "claim-gas", 333793, "gas cost to claim back loan")
+	pflag.Uint64Var(&lendGas, "lend-gas", 217479, "gas cost for lending asset")
+	pflag.Uint64Var(&claimGas, "claim-gas", 333793, "gas cost to claim back loan")
 
-	pflag.Float64Var(&borrowGas, "borrow-gas", 295250, "gas cost for borrowing asset")
-	pflag.Float64Var(&unborrowGas, "unborrow-gas", 193729, "gas cost for reducing debt")
-	pflag.Float64Var(&reborrowGas, "increase-gas", 271980, "gas cost for increasing debt")
-	pflag.Float64Var(&repayGas, "repay-gas", 188929, "gas cost to repay full debt")
+	pflag.Uint64Var(&borrowGas, "borrow-gas", 295250, "gas cost for borrowing asset")
+	pflag.Uint64Var(&unborrowGas, "unborrow-gas", 193729, "gas cost for reducing debt")
+	pflag.Uint64Var(&reborrowGas, "increase-gas", 271980, "gas cost for increasing debt")
+	pflag.Uint64Var(&repayGas, "repay-gas", 188929, "gas cost to repay full debt")
 
 	pflag.Parse()
 
@@ -154,6 +148,22 @@ func main() {
 		log.Fatal().Err(result.Err()).Msg("could not stream first record")
 	}
 
+	input0 := big.NewInt(0).SetUint64(inputValue)
+	input0.Mul(input0, b.D6) // USDC has 6 decimals, we want to operate at the most granular level
+
+	// TODO: check the precision on Uniswap v2 when calculating the swap fee
+	swapRate := big.NewInt(0).SetUint64(flagSwapRate)
+	swapRate.Mul(swapRate, b.E27)
+
+	flashRate := big.NewInt(0).SetUint64(flagFlashRate)
+	flashRate.Mul(flashRate, b.E23)
+
+	loanRate := big.NewInt(0).SetUint64(flagLoanRate)
+	loanRate.Mul(loanRate, b.E23)
+
+	borrowRate := big.NewInt(0).SetUint64(flagBorrowRate)
+	borrowRate.Mul(borrowRate, b.E23)
+
 	record := result.Record()
 	timestamp := record.Time()
 	values := record.Values()
@@ -170,22 +180,23 @@ func main() {
 		log.Fatal().Err(err).Msg("could not decode reserve1")
 	}
 
-	reserve0big := big.NewInt(0).SetBytes(reserve0bytes)
-	reserve1big := big.NewInt(0).SetBytes(reserve1bytes)
+	reserve0 := big.NewInt(0).SetBytes(reserve0bytes)
+	reserve1 := big.NewInt(0).SetBytes(reserve1bytes)
 
-	reserve0, _ := big.NewFloat(0).SetInt(reserve0big).Float64()
-	reserve1, _ := big.NewFloat(0).SetInt(reserve1big).Float64()
-
-	price := reserve0 / reserve1
+	// The price is a ratio and can be less than zero, so how does Uniswap handle this?
+	price := big.NewInt(0)
+	price.Div(reserve0, reserve1)
 
 	gasPrice1, err := station.Gasprice(timestamp)
 	if err != nil {
 		log.Fatal().Err(err).Time("timestamp", timestamp).Msg("could not get gas price for timestamp")
 	}
 
-	input0 := float64(inputValue) * d6
+	swapFee0 := big.NewInt(0).Set(input0)
+	swapFee0.Div(swapFee0, b.D2)
+	swapFee0.Mul(swapFee0, swapRate)
+	swapFee0.Div(swapFee0, b.E27)
 
-	swapFee0 := input0 / 2 * swapRate
 	hold0 := (input0 - swapFee0) / 2
 	hold1 := hold0 / price
 	gasHold := approveGas + swapGas

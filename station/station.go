@@ -52,16 +52,14 @@ func New(file string) (*Station, error) {
 
 func (s *Station) Gasprice(timestamp time.Time) (*big.Int, error) {
 
-	gasPrice := big.NewInt(0)
-
 	year, month, day := timestamp.Date()
 	date := time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
 	value, ok := s.prices[date]
 	if !ok {
-		return gasPrice, fmt.Errorf("gas price not found for date timestamp")
+		return nil, fmt.Errorf("gas price not found for date timestamp")
 	}
 
-	gasPrice.SetUint64(value)
+	gasPrice := big.NewInt(0).SetUint64(value)
 
 	return gasPrice, nil
 }

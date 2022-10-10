@@ -17,8 +17,8 @@ func (u Uniswap) Value0(price *big.Int) *big.Int {
 
 	big2 := big.NewInt(2)
 
-	value0 := big.NewInt(0)
-	value0.Mul(u.Liquidity, price)
+	value0 := big.NewInt(0).Set(u.Liquidity)
+	value0.Mul(value0, price)
 	value0.Sqrt(value0)
 	value0.Mul(value0, big2)
 	value0.Sub(value0, u.Fees0)
