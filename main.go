@@ -242,11 +242,11 @@ func main() {
 	liquidityUni := big.NewInt(0).Set(hold0)
 	liquidityUni.Mul(liquidityUni, hold1)
 
-	costCreate0 := big.NewInt(0).Set(createGas)
-	costCreate0.Mul(costCreate0, gasPrice1)
-	costCreate0.Mul(costCreate0, price)
-
 	feesUni0 := big.NewInt(0).Set(hold.Fees0)
+
+	costCreate1 := big.NewInt(0).Set(createGas)
+	costCreate1.Mul(costCreate1, gasPrice1)
+	costCreate0 := uniswap.Quote(costCreate1, reserve1, reserve0)
 
 	costUni0 := big.NewInt(0).Set(costHold0)
 	costUni0.Add(costUni0, costCreate0)
