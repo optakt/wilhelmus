@@ -14,10 +14,10 @@ import (
 
 	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
 
+	"github.com/optakt/wilhelmus/aave"
 	"github.com/optakt/wilhelmus/b"
 	"github.com/optakt/wilhelmus/position"
 	"github.com/optakt/wilhelmus/station"
-	"github.com/optakt/wilhelmus/util"
 )
 
 const (
@@ -105,8 +105,8 @@ func main() {
 	pflag.Uint64Var(&flagClaimGas, "claim-gas", 333793, "gas cost to claim back loan")
 
 	pflag.Uint64Var(&flagBorrowGas, "borrow-gas", 295250, "gas cost for borrowing asset")
-	pflag.Uint64Var(&flagUnborrowGas, "unborrow-gas", 193729, "gas cost for reducing debt")
-	pflag.Uint64Var(&flagReborrowGas, "increase-gas", 271980, "gas cost for increasing debt")
+	pflag.Uint64Var(&flagDecreaseGas, "unborrow-gas", 193729, "gas cost for reducing debt")
+	pflag.Uint64Var(&flagIncreaseGas, "increase-gas", 271980, "gas cost for increasing debt")
 	pflag.Uint64Var(&flagRepayGas, "repay-gas", 188929, "gas cost to repay full debt")
 
 	pflag.Parse()
@@ -346,83 +346,60 @@ func main() {
 		timestamp := record.Time()
 		values := record.Values()
 
-		reserve0hex := values["reserve0"].(string)
-		reserve1hex := values["reserve1"].(string)
+		rs0 := values["reserve0"].(string)
+		rs1 := values["reserve1"].(string)
 
-		reserve0bytes, err := hex.DecodeString(reserve0hex)
-		if err != nil {
-			log.Fatal().Err(err).Msg("could not decode reserve0")
-		}
-		reserve1bytes, err := hex.DecodeString(reserve1hex)
-		if err != nil {
-			log.Fatal().Err(err).Msg("could not decode reserve1")
-		}
+		reserve0 := b.FromHex(rs0)
+		reserve1 := b.FromHex(rs1)
 
-		reserve0big := big.NewInt(0).SetBytes(reserve0bytes)
-		reserve1big := big.NewInt(0).SetBytes(reserve1bytes)
+		s0 := values["volume0"].(string)
+		s1 := values["volume1"].(string)
 
-		reserve0, _ := big.NewFloat(0).SetInt(reserve0big).Float64()
-		reserve1, _ := big.NewFloat(0).SetInt(reserve1big).Float64()
-
-		price := reserve0 / reserve1
-
-		volume0hex := values["volume0"].(string)
-		volume1hex := values["volume1"].(string)
-
-		volume0bytes, err := hex.DecodeString(volume0hex)
-		if err != nil {
-			log.Fatal().Err(err).Msg("could not decode volume0")
-		}
-		volume1bytes, err := hex.DecodeString(volume1hex)
-		if err != nil {
-			log.Fatal().Err(err).Msg("could not decode volume1")
-		}
-
-		volume0big := big.NewInt(0).SetBytes(volume0bytes)
-		volume1big := big.NewInt(0).SetBytes(volume1bytes)
-
-		volume0, _ := big.NewFloat(0).SetInt(volume0big).Float64()
-		volume1, _ := big.NewFloat(0).SetInt(volume1big).Float64()
+		volume0 := b.FromHex(s0)
+		volume1 := b.FromHex(s1)
 
 		log := log.With().
 			Time("timestamp", timestamp).
 			Logger()
 
 		log.Debug().
-			Float64("reserve0", reserve0).
-			Float64("reserve1", reserve1).
-			Float64("volume0", volume0).
-			Float64("volume1", volume1).
-			Float64("price", price).
+			Float64("reserve0", b.ToFloat(reserve0, 6)).
+			Float64("reserve1", b.ToFloat(reserve1, 18)).
+			Float64("volume0", b.ToFloat(volume0, 6)).
+			Float64("volume1", b.ToFloat(volume1, 18)).
 			Msg("extracted datapoint from record")
 
-		seconds := timestamp.Sub(last).Seconds()
+		elapsed := big.NewInt(int64(timestamp.Sub(last).Seconds()))
 
-		realLoanRate := util.CompoundRate(loanRate, uint(elapsed))
-		yieldDelta0 := realLoanRate * (autohedge.Principal0 + autohedge.Yield0)
-		autohedge.Yield0 += yieldDelta0
+		realLoanRate := aave.CalculateCompoundedInterest(loanRate, elapsed)
+		yieldDelta0 := big.NewInt(0).Add(autohedge.Principal0, autohedge.Yield0)
+		yieldDelta0.Mul(yieldDelta0, realLoanRate)
+		yieldDelta0.Div(yieldDelta0, b.E27)
+		autohedge.Yield0.Add(autohedge.Yield0, yieldDelta0)
 
-		realBorrowRate := util.CompoundRate(borrowRate, uint(elapsed))
-		interestDelta1 := realBorrowRate * (autohedge.Debt1 + autohedge.Interest1)
-		autohedge.Interest1 += interestDelta1
+		realBorrowRate := aave.CalculateCompoundedInterest(borrowRate, elapsed)
+		interestDelta1 := big.NewInt(0).Add(autohedge.Debt1, autohedge.Interest1)
+		interestDelta1.Mul(interestDelta1, realBorrowRate)
+		interestDelta1.Div(interestDelta1, b.E27)
+		autohedge.Interest1.Add(autohedge.Interest1, interestDelta1)
 
 		last = timestamp
 
 		log.Debug().
-			Float64("principal0", autohedge.Principal0).
-			Float64("yield0", autohedge.Yield0).
-			Float64("gain0", yieldDelta0).
-			Float64("debt1", autohedge.Debt1).
-			Float64("interest1", autohedge.Interest1).
-			Float64("loss1", interestDelta1).
+			Float64("principal0", b.ToFloat(autohedge.Principal0, 6)).
+			Float64("yield0", b.ToFloat(autohedge.Yield0, 6)).
+			Float64("gain0", b.ToFloat(yieldDelta0, 6)).
+			Float64("debt1", b.ToFloat(autohedge.Debt1, 18)).
+			Float64("interest1", b.ToFloat(autohedge.Interest1, 18)).
+			Float64("loss1", b.ToFloat(interestDelta1, 18)).
 			Msg("compounded principal yield and debt interest")
 
-		liquidity := reserve0 * reserve1
+		liquidity := big.NewInt(0).Mul(reserve0, reserve1)
 
 		log.Debug().
-			Float64("liquidity", liquidity).
-			Float64("uniswap", uniswap.Liquidity).
-			Float64("autohedge", autohedge.Liquidity).
+			Float64("liquidity", b.ToFloat(liquidity, 0)).
+			Float64("uniswap", b.ToFloat(uniswap.Liquidity, 0)).
+			Float64("autohedge", b.ToFloat(autohedge.Liquidity, 0)).
 			Msg("preparing to calculate uniswap returns")
 
 		uni0 := math.Sqrt(uniswap.Liquidity * price)
