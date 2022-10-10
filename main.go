@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"math"
+	"math/big"
 	"os"
 	"time"
 
@@ -154,8 +156,24 @@ func main() {
 	timestamp := record.Time()
 	values := record.Values()
 
-	reserve0 := values["reserve0"].(float64)
-	reserve1 := values["reserve1"].(float64)
+	reserve0hex := values["reserve0"].(string)
+	reserve1hex := values["reserve1"].(string)
+
+	reserve0bytes, err := hex.DecodeString(reserve0hex)
+	if err != nil {
+		log.Fatal().Err(err).Msg("could not decode reserve0")
+	}
+	reserve1bytes, err := hex.DecodeString(reserve1hex)
+	if err != nil {
+		log.Fatal().Err(err).Msg("could not decode reserve1")
+	}
+
+	reserve0big := big.NewInt(0).SetBytes(reserve0bytes)
+	reserve1big := big.NewInt(0).SetBytes(reserve1bytes)
+
+	reserve0, _ := big.NewFloat(0).SetInt(reserve0big).Float64()
+	reserve1, _ := big.NewFloat(0).SetInt(reserve1big).Float64()
+
 	price := reserve0 / reserve1
 
 	gasPrice1, err := station.Gasprice(timestamp)
@@ -227,12 +245,43 @@ func main() {
 		timestamp := record.Time()
 		values := record.Values()
 
-		reserve0 := values["reserve0"].(float64)
-		reserve1 := values["reserve1"].(float64)
+		reserve0hex := values["reserve0"].(string)
+		reserve1hex := values["reserve1"].(string)
+
+		reserve0bytes, err := hex.DecodeString(reserve0hex)
+		if err != nil {
+			log.Fatal().Err(err).Msg("could not decode reserve0")
+		}
+		reserve1bytes, err := hex.DecodeString(reserve1hex)
+		if err != nil {
+			log.Fatal().Err(err).Msg("could not decode reserve1")
+		}
+
+		reserve0big := big.NewInt(0).SetBytes(reserve0bytes)
+		reserve1big := big.NewInt(0).SetBytes(reserve1bytes)
+
+		reserve0, _ := big.NewFloat(0).SetInt(reserve0big).Float64()
+		reserve1, _ := big.NewFloat(0).SetInt(reserve1big).Float64()
+
 		price := reserve0 / reserve1
 
-		volume0 := values["volume0"].(float64)
-		volume1 := values["volume1"].(float64)
+		volume0hex := values["volume0"].(string)
+		volume1hex := values["volume1"].(string)
+
+		volume0bytes, err := hex.DecodeString(volume0hex)
+		if err != nil {
+			log.Fatal().Err(err).Msg("could not decode volume0")
+		}
+		volume1bytes, err := hex.DecodeString(volume1hex)
+		if err != nil {
+			log.Fatal().Err(err).Msg("could not decode volume1")
+		}
+
+		volume0big := big.NewInt(0).SetBytes(volume0bytes)
+		volume1big := big.NewInt(0).SetBytes(volume1bytes)
+
+		volume0, _ := big.NewFloat(0).SetInt(volume0big).Float64()
+		volume1, _ := big.NewFloat(0).SetInt(volume1big).Float64()
 
 		log := log.With().
 			Time("timestamp", timestamp).
