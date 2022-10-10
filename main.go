@@ -75,6 +75,8 @@ func main() {
 		repayGas    float64
 	)
 
+	pflag.CommandLine.SortFlags = false
+
 	pflag.StringVarP(&logLevel, "log-level", "l", "info", "Zerolog logger logging message severity")
 	pflag.BoolVarP(&writeResults, "write-results", "w", false, "whether to write the results back to InfluxDB")
 	pflag.StringVarP(&gasPrices, "gas-prices", "g", "gas-prices.csv", "CSV file for average gas price per day")
