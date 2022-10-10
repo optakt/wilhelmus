@@ -1,9 +1,10 @@
 package position
 
 import (
+	"math/big"
 	"time"
 )
 
 type Station interface {
-	Gasprice(timestamp time.Time) (float64, error)
+	Gasprice(timestamp time.Time) (*big.Int, error)
 }

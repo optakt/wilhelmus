@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/csv"
 	"fmt"
+	"math/big"
 	"os"
 	"strconv"
 	"time"
@@ -42,12 +43,6 @@ func New(file string) (*Station, error) {
 		prices[date] = value
 	}
 
-	date := time.Date(2021, time.May, 9, 0, 0, 0, 0, time.UTC)
-	_, ok := prices[date]
-	if !ok {
-		panic("wtf")
-	}
-
 	s := Station{
 		prices: prices,
 	}
@@ -55,14 +50,18 @@ func New(file string) (*Station, error) {
 	return &s, nil
 }
 
-func (s *Station) Gasprice(timestamp time.Time) (float64, error) {
+func (s *Station) Gasprice(timestamp time.Time) (*big.Int, error) {
+
+	gasPrice := big.NewInt(0)
 
 	year, month, day := timestamp.Date()
 	date := time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
-	gasprice, ok := s.prices[date]
+	value, ok := s.prices[date]
 	if !ok {
-		return 0, fmt.Errorf("gas price not found for date timestamp")
+		return gasPrice, fmt.Errorf("gas price not found for date timestamp")
 	}
 
-	return float64(gasprice), nil
+	gasPrice.SetUint64(value)
+
+	return gasPrice, nil
 }
