@@ -36,10 +36,10 @@ func main() {
 		writeResults bool
 		gasPrices    string
 
-		inputValue   uint64
-		startTime    string
-		endTime      string
-		rehedgeRatio uint64
+		inputValue       uint64
+		startTime        string
+		endTime          string
+		flagRehedgeRatio uint64
 
 		influxAPI             string
 		influxToken           string
@@ -53,22 +53,22 @@ func main() {
 		flagLoanRate   uint64
 		flagBorrowRate uint64
 
-		approveGas uint64
-		swapGas    uint64
-		flashGas   uint64
+		flagApproveGas uint64
+		flagSwapGas    uint64
+		flagFlashGas   uint64
 
-		createGas uint64
-		addGas    uint64
-		removeGas uint64
-		closeGas  uint64
+		flagCreateGas uint64
+		flagAddGas    uint64
+		flagRemoveGas uint64
+		flagCloseGas  uint64
 
-		lendGas  uint64
-		claimGas uint64
+		flagLendGas  uint64
+		flagClaimGas uint64
 
-		borrowGas   uint64
-		reborrowGas uint64
-		unborrowGas uint64
-		repayGas    uint64
+		flagBorrowGas   uint64
+		flagIncreaseGas uint64
+		flagDecreaseGas uint64
+		flagRepayGas    uint64
 	)
 
 	pflag.StringVarP(&logLevel, "log-level", "l", "info", "Zerolog logger logging message severity")
@@ -78,7 +78,7 @@ func main() {
 	pflag.Uint64VarP(&inputValue, "input-value", "i", 1_000_000, "stable coin input amount")
 	pflag.StringVarP(&startTime, "start-time", "s", "2021-10-07T00:00:00Z", "start timestamp for the backtest")
 	pflag.StringVarP(&endTime, "end-time", "e", "2022-10-07T23:59:59Z", "end timestamp for the backtest")
-	pflag.Uint64VarP(&rehedgeRatio, "rehedge-ratio", "r", 100, "ratio between debt and collateral at which we rehedge (in 1/10000)")
+	pflag.Uint64VarP(&flagRehedgeRatio, "rehedge-ratio", "r", 100, "ratio between debt and collateral at which we rehedge (in 1/10000)")
 
 	pflag.StringVarP(&influxAPI, "influx-api", "a", "https://eu-central-1-1.aws.cloud2.influxdata.com", "InfluxDB API URL")
 	pflag.StringVarP(&influxToken, "influx-token", "t", "", "InfluxDB authentication token")
@@ -92,22 +92,22 @@ func main() {
 	pflag.Uint64Var(&flagLoanRate, "lend-rate", 50, "interest rate for lending asset (in 1/10000)")
 	pflag.Uint64Var(&flagBorrowRate, "borrow-rate", 250, "interest rate for borrowing asset (in 1/10000)")
 
-	pflag.Uint64Var(&approveGas, "approve-gas", 24102, "gas cost for transfer approval")
-	pflag.Uint64Var(&swapGas, "swap-gas", 181133, "gas cost for asset swap")
-	pflag.Uint64Var(&flashGas, "flash-gas", 204493, "gas cost for flash loan")
+	pflag.Uint64Var(&flagApproveGas, "approve-gas", 24102, "gas cost for transfer approval")
+	pflag.Uint64Var(&flagSwapGas, "swap-gas", 181133, "gas cost for asset swap")
+	pflag.Uint64Var(&flagFlashGas, "flash-gas", 204493, "gas cost for flash loan")
 
-	pflag.Uint64Var(&createGas, "provide-gas", 157880, "gas cost for creating liquidity position")
-	pflag.Uint64Var(&addGas, "add-gas", 130682, "gas cost for adding liquidity")
-	pflag.Uint64Var(&removeGas, "remove-gas", 161841, "gas cost to remove liquidity")
-	pflag.Uint64Var(&closeGas, "close-gas", 207111, "gas cost for close liquidity position")
+	pflag.Uint64Var(&flagCreateGas, "provide-gas", 157880, "gas cost for creating liquidity position")
+	pflag.Uint64Var(&flagAddGas, "add-gas", 130682, "gas cost for adding liquidity")
+	pflag.Uint64Var(&flagRemoveGas, "remove-gas", 161841, "gas cost to remove liquidity")
+	pflag.Uint64Var(&flagCloseGas, "close-gas", 207111, "gas cost for close liquidity position")
 
-	pflag.Uint64Var(&lendGas, "lend-gas", 217479, "gas cost for lending asset")
-	pflag.Uint64Var(&claimGas, "claim-gas", 333793, "gas cost to claim back loan")
+	pflag.Uint64Var(&flagLendGas, "lend-gas", 217479, "gas cost for lending asset")
+	pflag.Uint64Var(&flagClaimGas, "claim-gas", 333793, "gas cost to claim back loan")
 
-	pflag.Uint64Var(&borrowGas, "borrow-gas", 295250, "gas cost for borrowing asset")
-	pflag.Uint64Var(&unborrowGas, "unborrow-gas", 193729, "gas cost for reducing debt")
-	pflag.Uint64Var(&reborrowGas, "increase-gas", 271980, "gas cost for increasing debt")
-	pflag.Uint64Var(&repayGas, "repay-gas", 188929, "gas cost to repay full debt")
+	pflag.Uint64Var(&flagBorrowGas, "borrow-gas", 295250, "gas cost for borrowing asset")
+	pflag.Uint64Var(&flagUnborrowGas, "unborrow-gas", 193729, "gas cost for reducing debt")
+	pflag.Uint64Var(&flagReborrowGas, "increase-gas", 271980, "gas cost for increasing debt")
+	pflag.Uint64Var(&flagRepayGas, "repay-gas", 188929, "gas cost to repay full debt")
 
 	pflag.Parse()
 
@@ -148,12 +148,17 @@ func main() {
 		log.Fatal().Err(result.Err()).Msg("could not stream first record")
 	}
 
+	// Convert the USD value given as input into a big integer.
 	input0 := big.NewInt(0).SetUint64(inputValue)
 	input0.Mul(input0, b.D6) // USDC has 6 decimals, we want to operate at the most granular level
 
+	// Convert the hedge ratio to big integer.
+	rehedgeRatio := big.NewInt(0).SetUint64(flagRehedgeRatio)
+
+	// Convert the fee/interest rates into big integers.
 	// TODO: check the precision on Uniswap v2 when calculating the swap fee
 	swapRate := big.NewInt(0).SetUint64(flagSwapRate)
-	swapRate.Mul(swapRate, b.E27)
+	swapRate.Mul(swapRate, b.E23)
 
 	flashRate := big.NewInt(0).SetUint64(flagFlashRate)
 	flashRate.Mul(flashRate, b.E23)
@@ -164,10 +169,34 @@ func main() {
 	borrowRate := big.NewInt(0).SetUint64(flagBorrowRate)
 	borrowRate.Mul(borrowRate, b.E23)
 
+	// Convert the gas costs into big integers.
+	approveGas := big.NewInt(0).SetUint64(flagApproveGas) // approve ERC20 transfer
+	swapGas := big.NewInt(0).SetUint64(flagSwapGas)       // swap assets on Uniswap v2 pair
+	flashGas := big.NewInt(0).SetUint64(flagFlashGas)     // take out a flash loan on Aave
+
+	createGas := big.NewInt(0).SetUint64(flagCreateGas) // create liquidity position on Uniswap v2
+	addGas := big.NewInt(0).SetUint64(flagAddGas)       // add liquidity on Uniswap v2
+	removeGas := big.NewInt(0).SetUint64(flagRemoveGas) // remove liquidity on Uniswap v2
+	// closeCas := big.NewInt(0).SetUint64(flagCloseGas)   // close liquidity position on Uniswap v2
+
+	lendGas := big.NewInt(0).SetUint64(flagLendGas) // lend asset on Aave
+	// claimGas := big.NewInt(0).SetUint64(flagClaimGas) // claim loan plus yield on Aave
+
+	borrowGas := big.NewInt(0).SetUint64(flagBorrowGas)     // borrow asset on Aave
+	increaseGas := big.NewInt(0).SetUint64(flagIncreaseGas) // increase debt on Aaave
+	decreaseGas := big.NewInt(0).SetUint64(flagDecreaseGas) // decrease debt on Aave
+	// repayGas := big.NewInt(0).SetUint64(flagRepayGas)       // repoy loan on Aave
+
+	// Read the first record to initialize the positions.
 	record := result.Record()
 	timestamp := record.Time()
 	values := record.Values()
 
+	// The values from InfluxDB come as hex-encoded strings for now, so convert
+	// them back to the original big integers read from the contracts.
+	// NOTE: this is because InfluxDB doesn't support number above 64 bits, and
+	// with `float64` we get too much imprecision. QuestDB supports 256-bit
+	// integers and might be the better option.
 	reserve0hex := values["reserve0"].(string)
 	reserve1hex := values["reserve1"].(string)
 
@@ -183,66 +212,120 @@ func main() {
 	reserve0 := big.NewInt(0).SetBytes(reserve0bytes)
 	reserve1 := big.NewInt(0).SetBytes(reserve1bytes)
 
-	// The price is a ratio and can be less than zero, so how does Uniswap handle this?
-	price := big.NewInt(0)
-	price.Div(reserve0, reserve1)
+	// The price is a ratio that can be smaller than zero.
+	// TODO: check what precision Uniswap uses here.
+	price := big.NewInt(0).Set(reserve0)
+	price.Mul(price, b.E18)
+	price.Div(price, reserve1)
 
 	gasPrice1, err := station.Gasprice(timestamp)
 	if err != nil {
 		log.Fatal().Err(err).Time("timestamp", timestamp).Msg("could not get gas price for timestamp")
 	}
 
-	swapFee0 := big.NewInt(0).Set(input0)
-	swapFee0.Div(swapFee0, b.D2)
-	swapFee0.Mul(swapFee0, swapRate)
-	swapFee0.Div(swapFee0, b.E27)
+	feesHold0 := big.NewInt(0).Set(input0)
+	feesHold0.Div(feesHold0, b.D2)
+	feesHold0.Mul(feesHold0, swapRate)
+	feesHold0.Div(feesHold0, b.E27)
 
-	hold0 := (input0 - swapFee0) / 2
-	hold1 := hold0 / price
-	gasHold := approveGas + swapGas
+	hold0 := big.NewInt(0).Set(input0)
+	hold0.Sub(hold0, input0)
+	hold0.Div(hold0, b.D2)
+
+	hold1 := big.NewInt(0).Set(hold0)
+	hold1.Mul(hold1, b.E18)
+	hold1.Div(hold0, price)
+
+	costHold0 := big.NewInt(0).Set(approveGas)
+	costHold0.Add(costHold0, swapGas)
+	costHold0.Mul(costHold0, gasPrice1)
+	costHold0.Mul(costHold0, price)
 
 	hold := position.Hold{
-		Size:    inputValue,
+		Size:    input0,
 		Amount0: hold0,
 		Amount1: hold1,
-		Fees0:   swapFee0,
-		Cost0:   gasHold * gasPrice1 * price,
+		Fees0:   feesHold0,
+		Cost0:   costHold0,
 	}
 
-	liquidity := hold0 * hold1
-	gasUni := gasHold + createGas
+	liquidityUni := big.NewInt(0).Set(hold0)
+	liquidityUni.Mul(liquidityUni, hold1)
+
+	costCreate0 := big.NewInt(0).Set(createGas)
+	costCreate0.Mul(costCreate0, gasPrice1)
+	costCreate0.Mul(costCreate0, price)
+
+	feesUni0 := big.NewInt(0).Set(hold.Fees0)
+
+	costUni0 := big.NewInt(0).Set(costHold0)
+	costUni0.Add(costUni0, costCreate0)
 
 	uniswap := position.Uniswap{
 		Size:      inputValue,
-		Liquidity: liquidity,
-		Fees0:     hold.Fees0,
-		Cost0:     gasUni * gasPrice1 * price,
+		Liquidity: liquidityUni,
+		Fees0:     feesUni0,
+		Cost0:     costUni0,
 	}
 
-	auto1 := input0 / (price * (1 + (flashRate / (1 - swapRate))))
-	fee1 := auto1 * flashRate
-	fee0 := fee1 * price / (1 - swapRate)
-	auto0 := input0 - fee0
-	gasAuto := gasUni + (2*approveGas + flashGas + lendGas + borrowGas)
+	// TODO: figure out how to correctly apply with 10^27 values
+	auto1 := big.NewInt(0).Set(b.E27)
+	auto1.Sub(auto1, swapRate)
+	auto1.Mul(auto1, b.E27)
+	auto1.Div(flashRate, auto1)
+	auto1.Add(b.E27, auto1)
+	auto1.Mul(auto1, price)
+	auto1.Div(input0, auto1)
+
+	autoFee1 := big.NewInt(0).Set(auto1)
+	autoFee1.Mul(autoFee1, flashRate)
+	autoFee1.Div(autoFee1, b.E27)
+
+	autoFee0 := big.NewInt(0).Set(b.E27)
+	autoFee0.Sub(autoFee0, swapRate)
+	autoFee0.Mul(autoFee0, b.E27)
+	autoFee0.Div(price, autoFee0)
+	autoFee0.Mul(autoFee1, autoFee0)
+
+	auto0 := big.NewInt(0).Set(input0)
+	auto0.Sub(auto0, autoFee0)
+
+	liquidityAuto := big.NewInt(0).Set(auto0)
+	liquidityAuto.Mul(liquidityAuto, auto1)
+
+	principal0 := big.NewInt(0).Set(auto1)
+	principal0.Mul(principal0, price)
+	principal0.Add(principal0, auto0)
+
+	costHedge0 := big.NewInt(0).Set(approveGas)
+	costHedge0.Mul(costHedge0, b.D2)
+	costHedge0.Add(costHedge0, flashGas)
+	costHedge0.Add(costHedge0, lendGas)
+	costHedge0.Add(costHedge0, borrowGas)
+	costHedge0.Mul(costHedge0, gasPrice1)
+	costHedge0.Mul(costHedge0, price)
+
+	costAuto0 := big.NewInt(0).Set(costUni0)
+	costAuto0.Add(costAuto0, costHedge0)
 
 	autohedge := position.Autohedge{
-		Size:       inputValue,
+		Size:       input0,
 		Rehedge:    rehedgeRatio,
-		Liquidity:  auto0 * auto1,
-		Principal0: auto0 + auto1*price,
-		Yield0:     0,
+		Liquidity:  liquidityAuto,
+		Principal0: principal0,
+		Yield0:     b.D0,
 		Debt1:      auto1,
-		Interest1:  0,
-		Fees0:      fee0 + fee1*price,
-		Cost0:      gasAuto * gasPrice1 * price,
+		Interest1:  b.D0,
+		Fees0:      autoFee0,
+		Cost0:      costAuto0,
 	}
 
 	log.Info().
 		Time("timestamp", timestamp).
-		Float64("price", price).
-		Float64("hold", hold.Value0(price)/d6).
-		Float64("uniswap", uniswap.Value0(price)/d6).
-		Float64("autohedge", autohedge.Value0(price)/d6).
+		Str("price", price.String()).
+		Str("hold", big.NewInt(0).Div(hold.Value0(price), b.D6).String()).
+		Str("uniswap", big.NewInt(0).Div(uniswap.Value0(price), b.D6).String()).
+		Str("autohedge", big.NewInt(0).Div(autohedge.Value0(price), b.D6).String()).
 		Msg("original positions created")
 
 	if writeResults {
