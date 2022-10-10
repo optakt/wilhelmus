@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math/big"
 	"time"
 
 	"github.com/dustin/go-humanize"
@@ -10,10 +11,20 @@ import (
 	"github.com/influxdata/influxdb-client-go/v2/api/write"
 )
 
-func writeHold(timestamp time.Time, price float64, hold position.Hold, outbound api.WriteAPI) {
+const (
+	e6  = 1_000_000
+	e18 = 1_000_000_000_000_000_000
+)
 
-	value, prefix := humanize.ComputeSI(float64(hold.Size))
-	size := humanize.Ftoa(value) + prefix
+func writeHold(timestamp time.Time, price *big.Int, hold position.Hold, outbound api.WriteAPI) {
+
+	sizeFloat, _ := big.NewFloat(0).SetInt(hold.Size).Float64()
+	number, suffix := humanize.ComputeSI(sizeFloat)
+	size := humanize.Ftoa(number) + suffix
+
+	value, _ := big.NewFloat(0).SetInt(hold.Value0(price)).Float64()
+	fees, _ := big.NewFloat(0).SetInt(hold.Fees0).Float64()
+	cost, _ := big.NewFloat(0).SetInt(hold.Cost0).Float64()
 
 	tags := map[string]string{
 		"strategy": "hold",
@@ -21,19 +32,31 @@ func writeHold(timestamp time.Time, price float64, hold position.Hold, outbound 
 		"size":     size,
 	}
 	fields := map[string]interface{}{
-		"value": hold.Value0(price) / d6,
-		"fees":  hold.Fees0 / d6,
-		"cost":  hold.Cost0 / d6,
+		"value": value / e6,
+		"fees":  fees / e6,
+		"cost":  cost / e6,
 	}
 
 	point := write.NewPoint("uniswapv2", tags, fields, timestamp)
 	outbound.WritePoint(point)
 }
 
-func writeUniswap(timestamp time.Time, price float64, uniswap position.Uniswap, outbound api.WriteAPI) {
+func writeUniswap(timestamp time.Time, price *big.Int, uniswap position.Uniswap, outbound api.WriteAPI) {
 
-	value, prefix := humanize.ComputeSI(float64(uniswap.Size))
-	size := humanize.Ftoa(value) + prefix
+	sizeFloat, _ := big.NewFloat(0).SetInt(uniswap.Size).Float64()
+	number, suffix := humanize.ComputeSI(sizeFloat)
+	size := humanize.Ftoa(number) + suffix
+
+	priceFloat, _ := big.NewFloat(0).SetInt(price).Float64()
+	priceFloat /= e18
+
+	profit0, _ := big.NewFloat(0).SetInt(uniswap.Profit0).Float64()
+	profit1, _ := big.NewFloat(0).SetInt(uniswap.Profit1).Float64()
+	profit := profit0 * profit1 * priceFloat
+
+	value, _ := big.NewFloat(0).SetInt(uniswap.Value0(price)).Float64()
+	fees, _ := big.NewFloat(0).SetInt(uniswap.Fees0).Float64()
+	cost, _ := big.NewFloat(0).SetInt(uniswap.Cost0).Float64()
 
 	tags := map[string]string{
 		"strategy": "uniswap",
@@ -41,22 +64,42 @@ func writeUniswap(timestamp time.Time, price float64, uniswap position.Uniswap, 
 		"size":     size,
 	}
 	fields := map[string]interface{}{
-		"value":  uniswap.Value0(price) / d6,
-		"profit": (uniswap.Profit0 + uniswap.Profit1*price) / d6,
-		"fees":   uniswap.Fees0 / d6,
-		"cost":   uniswap.Cost0 / d6,
+		"value":  value / e6,
+		"profit": profit / e6,
+		"fees":   fees / e6,
+		"cost":   cost / e6,
 	}
 
 	point := write.NewPoint("uniswapv2", tags, fields, timestamp)
 	outbound.WritePoint(point)
 }
 
-func writeAutohedge(timestamp time.Time, price float64, autohedge position.Autohedge, outbound api.WriteAPI) {
+func writeAutohedge(timestamp time.Time, price *big.Int, autohedge position.Autohedge, outbound api.WriteAPI) {
 
-	value, prefix := humanize.ComputeSI(float64(autohedge.Size))
-	size := humanize.Ftoa(value) + prefix
+	sizeFloat, _ := big.NewFloat(0).SetInt(autohedge.Size).Float64()
+	number, suffix := humanize.ComputeSI(sizeFloat)
+	size := humanize.Ftoa(number) + suffix
 
-	rehedge := humanize.Ftoa(autohedge.Rehedge*100) + "%"
+	rehedgeFloat, _ := big.NewFloat(0).SetInt(autohedge.Rehedge).Float64()
+	rehedge := humanize.Ftoa(rehedgeFloat*100) + "%"
+
+	priceFloat, _ := big.NewFloat(0).SetInt(price).Float64()
+	priceFloat /= e18
+
+	profit0, _ := big.NewFloat(0).SetInt(autohedge.Profit0).Float64()
+	profit1, _ := big.NewFloat(0).SetInt(autohedge.Profit1).Float64()
+	profit := profit0 * profit1 * priceFloat
+
+	value, _ := big.NewFloat(0).SetInt(autohedge.Value0(price)).Float64()
+	fees, _ := big.NewFloat(0).SetInt(autohedge.Fees0).Float64()
+	cost, _ := big.NewFloat(0).SetInt(autohedge.Cost0).Float64()
+	yield, _ := big.NewFloat(0).SetInt(autohedge.Yield0).Float64()
+
+	debt, _ := big.NewFloat(0).SetInt(autohedge.Debt1).Float64()
+	debt *= priceFloat
+
+	interest, _ := big.NewFloat(0).SetInt(autohedge.Interest1).Float64()
+	interest *= priceFloat
 
 	tags := map[string]string{
 		"strategy": "autohedge",
@@ -66,13 +109,13 @@ func writeAutohedge(timestamp time.Time, price float64, autohedge position.Autoh
 		"rehedge":  rehedge,
 	}
 	fields := map[string]interface{}{
-		"value":    autohedge.Value0(price) / d6,
-		"profit":   (autohedge.Profit0 + autohedge.Profit1*price) / d6,
-		"fees":     autohedge.Fees0 / d6,
-		"cost":     autohedge.Cost0 / d6,
-		"yield":    autohedge.Yield0 / d6,
-		"debt":     autohedge.Debt1 * price / d6,
-		"interest": autohedge.Interest1 * price / d6,
+		"value":    value / e6,
+		"profit":   profit / e6,
+		"fees":     fees / e6,
+		"cost":     cost / e6,
+		"yield":    yield / e6,
+		"debt":     debt / e6,
+		"interest": interest / e6,
 	}
 
 	point := write.NewPoint("uniswapv2", tags, fields, timestamp)

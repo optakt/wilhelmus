@@ -5,7 +5,7 @@ import (
 )
 
 type Uniswap struct {
-	Size      uint64
+	Size      *big.Int
 	Liquidity *big.Int
 	Profit0   *big.Int
 	Profit1   *big.Int
