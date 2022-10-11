@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"math"
 	"math/big"
 	"os"
 	"time"
@@ -13,11 +12,10 @@ import (
 
 	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
 
-	"github.com/optakt/wilhelmus/aave"
 	"github.com/optakt/wilhelmus/b"
 	"github.com/optakt/wilhelmus/position"
 	"github.com/optakt/wilhelmus/station"
-	"github.com/optakt/wilhelmus/uniswap"
+	"github.com/optakt/wilhelmus/util"
 )
 
 const (
@@ -48,14 +46,15 @@ func main() {
 		influxBucketUniswap   string
 		influxBucketPositions string
 
-		flagSwapRate   uint64
-		flagFlashRate  uint64
-		flagLoanRate   uint64
-		flagBorrowRate uint64
+		flagSwapRate   float64
+		flagFlashRate  float64
+		flagLoanRate   float64
+		flagBorrowRate float64
 
-		flagApproveGas uint64
-		flagSwapGas    uint64
-		flagFlashGas   uint64
+		flagTransferGas uint64
+		flagApproveGas  uint64
+		flagSwapGas     uint64
+		flagFlashGas    uint64
 
 		flagCreateGas uint64
 		flagAddGas    uint64
@@ -87,11 +86,12 @@ func main() {
 	pflag.StringVar(&influxBucketUniswap, "influx-bucket-uniswap", "uniswap", "InfluxDB bucket name for Uniswap metrics")
 	pflag.StringVar(&influxBucketPositions, "influx-bucket-positions", "positions", "InfluxDB bucket for position values")
 
-	pflag.Uint64Var(&flagSwapRate, "swap-rate", 30, "fee rate for asset swap (in 1/10000)")
-	pflag.Uint64Var(&flagFlashRate, "flash-rate", 9, "fee rate for flash loan (in 1/10000)")
-	pflag.Uint64Var(&flagLoanRate, "lend-rate", 50, "interest rate for lending asset (in 1/10000)")
-	pflag.Uint64Var(&flagBorrowRate, "borrow-rate", 250, "interest rate for borrowing asset (in 1/10000)")
+	pflag.Float64Var(&flagSwapRate, "swap-rate", 0.003, "fee rate for asset swap")
+	pflag.Float64Var(&flagFlashRate, "flash-rate", 0.0009, "fee rate for flash loan")
+	pflag.Float64Var(&flagLoanRate, "lend-rate", 0.005, "interest rate for lending asset")
+	pflag.Float64Var(&flagBorrowRate, "borrow-rate", 0.025, "interest rate for borrowing asset")
 
+	pflag.Uint64Var(&flagTransferGas, "transfer-gas", 65601, "gas cost for token transfer")
 	pflag.Uint64Var(&flagApproveGas, "approve-gas", 24102, "gas cost for transfer approval")
 	pflag.Uint64Var(&flagSwapGas, "swap-gas", 181133, "gas cost for asset swap")
 	pflag.Uint64Var(&flagFlashGas, "flash-gas", 204493, "gas cost for flash loan")
@@ -155,19 +155,13 @@ func main() {
 	// Convert the hedge ratio to big integer.
 	rehedgeRatio := big.NewInt(0).SetUint64(flagRehedgeRatio)
 
-	// Convert the fee/interest rates into big integers.
-	// TODO: check the precision on Uniswap v2 when calculating the swap fee
-	swapRate := big.NewInt(0).SetUint64(flagSwapRate)
-	swapRate.Mul(swapRate, b.E23)
+	// We keep track of the flash rate as 1/1000 units
+	swapRate := big.NewInt(int64(flagSwapRate * 1_000))
 
-	flashRate := big.NewInt(0).SetUint64(flagFlashRate)
-	flashRate.Mul(flashRate, b.E23)
-
-	loanRate := big.NewInt(0).SetUint64(flagLoanRate)
-	loanRate.Mul(loanRate, b.E23)
-
-	borrowRate := big.NewInt(0).SetUint64(flagBorrowRate)
-	borrowRate.Mul(borrowRate, b.E23)
+	// We keep rate of loan interest rates as 1/10^27 units (Ray)
+	flashRate := big.NewInt(0).Mul(big.NewInt(int64(flagFlashRate*10_000)), b.E23)
+	loanRate := big.NewInt(0).Mul(big.NewInt(int64(flagFlashRate*10_000)), b.E23)
+	borrowRate := big.NewInt(0).Mul(big.NewInt(int64(flagFlashRate*10_000)), b.E23)
 
 	// Convert the gas costs into big integers.
 	approveGas := big.NewInt(0).SetUint64(flagApproveGas) // approve ERC20 transfer
@@ -175,16 +169,16 @@ func main() {
 	flashGas := big.NewInt(0).SetUint64(flagFlashGas)     // take out a flash loan on Aave
 
 	createGas := big.NewInt(0).SetUint64(flagCreateGas) // create liquidity position on Uniswap v2
-	addGas := big.NewInt(0).SetUint64(flagAddGas)       // add liquidity on Uniswap v2
-	removeGas := big.NewInt(0).SetUint64(flagRemoveGas) // remove liquidity on Uniswap v2
+	// addGas := big.NewInt(0).SetUint64(flagAddGas)       // add liquidity on Uniswap v2
+	// removeGas := big.NewInt(0).SetUint64(flagRemoveGas) // remove liquidity on Uniswap v2
 	// closeCas := big.NewInt(0).SetUint64(flagCloseGas)   // close liquidity position on Uniswap v2
 
 	lendGas := big.NewInt(0).SetUint64(flagLendGas) // lend asset on Aave
 	// claimGas := big.NewInt(0).SetUint64(flagClaimGas) // claim loan plus yield on Aave
 
-	borrowGas := big.NewInt(0).SetUint64(flagBorrowGas)     // borrow asset on Aave
-	increaseGas := big.NewInt(0).SetUint64(flagIncreaseGas) // increase debt on Aaave
-	decreaseGas := big.NewInt(0).SetUint64(flagDecreaseGas) // decrease debt on Aave
+	borrowGas := big.NewInt(0).SetUint64(flagBorrowGas) // borrow asset on Aave
+	// increaseGas := big.NewInt(0).SetUint64(flagIncreaseGas) // increase debt on Aaave
+	// decreaseGas := big.NewInt(0).SetUint64(flagDecreaseGas) // decrease debt on Aave
 	// repayGas := big.NewInt(0).SetUint64(flagRepayGas)       // repoy loan on Aave
 
 	// Read the first record to initialize the positions.
@@ -208,28 +202,20 @@ func main() {
 		log.Fatal().Err(err).Time("timestamp", timestamp).Msg("could not get gas price for timestamp")
 	}
 
-	var hold0, hold1 *big.Int
-	swapping0 := big.NewInt(0).Div(input0, b.D2)
-	swapping0.Mul(swapping0, b.D2000)
-	swapping0.Div(swapping0, b.D1997)
-	for {
-		hold1 = uniswap.GetAmountOut(swapping0, reserve0, reserve1)
-		hold0 = uniswap.Quote(hold1, reserve1, reserve0)
-		total0 := big.NewInt(0).Add(swapping0, hold0)
-		switch {
-		case total0.Cmp(input0) < 0:
-			swapping0.Add(swapping0, b.D1)
-		case total0.Cmp(input0) > 0:
-			swapping0.Sub(swapping0, b.D1)
-		default:
-			break
-		}
-	}
-	fee0 := big.NewInt(0).Sub(swapping0, hold0)
+	holdDiv := big.NewInt(0).Add(b.D2000, swapRate)
+
+	hold0 := big.NewInt(0).Mul(input0, b.D1000)
+	hold0.Div(hold0, holdDiv)
+
+	hold1 := util.Quote(hold0, reserve0, reserve1)
+
+	fee0 := big.NewInt(0).Sub(input0, hold0)
+	fee0.Sub(fee0, hold0)
 
 	costHold1 := big.NewInt(0).Add(approveGas, swapGas)
 	costHold1.Mul(costHold1, gasPrice1)
-	costHold0 := uniswap.Quote(costHold1, reserve1, reserve0)
+
+	costHold0 := util.Quote(costHold1, reserve1, reserve0)
 
 	hold := position.Hold{
 		Size:    input0,
@@ -239,17 +225,15 @@ func main() {
 		Cost0:   costHold0,
 	}
 
-	liquidityUni := big.NewInt(0).Set(hold0)
-	liquidityUni.Mul(liquidityUni, hold1)
+	liquidityUni := big.NewInt(0).Mul(hold0, hold1)
 
 	feesUni0 := big.NewInt(0).Set(hold.Fees0)
 
-	costCreate1 := big.NewInt(0).Set(createGas)
-	costCreate1.Mul(costCreate1, gasPrice1)
-	costCreate0 := uniswap.Quote(costCreate1, reserve1, reserve0)
+	costUni1 := big.NewInt(0).Add(approveGas, swapGas)
+	costUni1.Add(costUni1, createGas)
+	costUni1.Mul(costUni1, gasPrice1)
 
-	costUni0 := big.NewInt(0).Set(costHold0)
-	costUni0.Add(costUni0, costCreate0)
+	costUni0 := util.Quote(costUni1, reserve1, reserve0)
 
 	uniswap := position.Uniswap{
 		Size:      input0,
@@ -258,65 +242,52 @@ func main() {
 		Cost0:     costUni0,
 	}
 
-	// TODO: figure out how to correctly apply with 10^27 values
-	auto1 := big.NewInt(0).Set(b.E27)
-	auto1.Sub(auto1, swapRate)
-	auto1.Mul(auto1, b.E27)
-	auto1.Div(flashRate, auto1)
-	auto1.Add(b.E27, auto1)
-	auto1.Mul(auto1, price)
-	auto1.Div(input0, auto1)
+	autoDivA := big.NewInt(0).Mul(flashRate, swapRate)
+	autoDivB := big.NewInt(0).Mul(flashRate, b.E3)
+	autoDiv := big.NewInt(0).Add(autoDivA, autoDivB)
 
-	autoFee1 := big.NewInt(0).Set(auto1)
-	autoFee1.Mul(autoFee1, flashRate)
-	autoFee1.Div(autoFee1, b.E27)
+	auto0 := big.NewInt(0).Mul(input0, b.E30)
+	auto0.Div(auto0, autoDiv)
 
-	autoFee0 := big.NewInt(0).Set(b.E27)
-	autoFee0.Sub(autoFee0, swapRate)
-	autoFee0.Mul(autoFee0, b.E27)
-	autoFee0.Div(price, autoFee0)
-	autoFee0.Mul(autoFee1, autoFee0)
+	auto1 := util.Quote(auto0, reserve0, reserve1)
 
-	auto0 := big.NewInt(0).Set(input0)
-	auto0.Sub(auto0, autoFee0)
+	liquidityAuto := big.NewInt(0).Mul(auto0, auto1)
 
-	liquidityAuto := big.NewInt(0).Set(auto0)
-	liquidityAuto.Mul(liquidityAuto, auto1)
+	principal0 := big.NewInt(0).Add(auto0, auto0)
 
-	principal0 := big.NewInt(0).Set(auto1)
-	principal0.Mul(principal0, price)
-	principal0.Add(principal0, auto0)
+	autoFee0 := big.NewInt(0).Sub(input0, auto0)
 
-	costHedge0 := big.NewInt(0).Set(approveGas)
-	costHedge0.Mul(costHedge0, b.D2)
-	costHedge0.Add(costHedge0, flashGas)
-	costHedge0.Add(costHedge0, lendGas)
-	costHedge0.Add(costHedge0, borrowGas)
-	costHedge0.Mul(costHedge0, gasPrice1)
-	costHedge0.Mul(costHedge0, price)
+	costAuto1 := big.NewInt(0).Add(flashGas, createGas)
+	costAuto1.Add(costAuto1, approveGas)
+	costAuto1.Add(costAuto1, lendGas)
+	costAuto1.Add(costAuto1, borrowGas)
+	costAuto1.Add(costAuto1, approveGas)
+	costAuto1.Add(costAuto1, swapGas)
+	costAuto1.Mul(costAuto1, gasPrice1)
 
-	costAuto0 := big.NewInt(0).Set(costUni0)
-	costAuto0.Add(costAuto0, costHedge0)
+	costAuto0 := util.Quote(costAuto1, reserve1, reserve0)
 
 	autohedge := position.Autohedge{
 		Size:       input0,
 		Rehedge:    rehedgeRatio,
 		Liquidity:  liquidityAuto,
 		Principal0: principal0,
-		Yield0:     b.D0,
+		Yield0:     big.NewInt(0),
 		Debt1:      auto1,
-		Interest1:  b.D0,
+		Interest1:  big.NewInt(0),
 		Fees0:      autoFee0,
 		Cost0:      costAuto0,
 	}
 
+	price := big.NewInt(0).Div(reserve0, reserve1)
+
 	log.Info().
 		Time("timestamp", timestamp).
-		Str("price", price.String()).
-		Str("hold", big.NewInt(0).Div(hold.Value0(price), b.D6).String()).
-		Str("uniswap", big.NewInt(0).Div(uniswap.Value0(price), b.D6).String()).
-		Str("autohedge", big.NewInt(0).Div(autohedge.Value0(price), b.D6).String()).
-		Msg("original positions created")
+		Float64("price", b.ToFloat(price, 6)).
+		Float64("hold", b.ToFloat(hold.Value0(price), 6)).
+		Float64("uniswap", b.ToFloat(uniswap.Value0(price), 6)).
+		Float64("autohedge", b.ToFloat(autohedge.Value0(price), 6)).
+		Msg("position values initialized")
 
 	if writeResults {
 		writeHold(timestamp, price, hold, outbound)
@@ -354,13 +325,13 @@ func main() {
 
 		elapsed := big.NewInt(int64(timestamp.Sub(last).Seconds()))
 
-		realLoanRate := aave.CalculateCompoundedInterest(loanRate, elapsed)
+		realLoanRate := util.CalculateCompoundedInterest(loanRate, elapsed)
 		yieldDelta0 := big.NewInt(0).Add(autohedge.Principal0, autohedge.Yield0)
 		yieldDelta0.Mul(yieldDelta0, realLoanRate)
 		yieldDelta0.Div(yieldDelta0, b.E27)
 		autohedge.Yield0.Add(autohedge.Yield0, yieldDelta0)
 
-		realBorrowRate := aave.CalculateCompoundedInterest(borrowRate, elapsed)
+		realBorrowRate := util.CalculateCompoundedInterest(borrowRate, elapsed)
 		interestDelta1 := big.NewInt(0).Add(autohedge.Debt1, autohedge.Interest1)
 		interestDelta1.Mul(interestDelta1, realBorrowRate)
 		interestDelta1.Div(interestDelta1, b.E27)
@@ -377,112 +348,106 @@ func main() {
 			Float64("loss1", b.ToFloat(interestDelta1, 18)).
 			Msg("compounded principal yield and debt interest")
 
-		liquidity := big.NewInt(0).Mul(reserve0, reserve1)
+		// liquidity := big.NewInt(0).Mul(reserve0, reserve1)
 
-		log.Debug().
-			Float64("liquidity", b.ToFloat(liquidity, 0)).
-			Float64("uniswap", b.ToFloat(uniswap.Liquidity, 0)).
-			Float64("autohedge", b.ToFloat(autohedge.Liquidity, 0)).
-			Msg("preparing to calculate uniswap returns")
+		// uni0 := big.NewInt(0).Mul(uniswap.Liquidity, price)
+		// uni0.Sqrt(uni0)
+		// uni1 := big.NewInt(0).Div(uni0, price)
 
-		uni0 := big.NewInt(0).Mul(uniswap.Liquidity, price)
-		uni0.Sqrt(uni0)
-		uni1 := big.NewInt(0).Div(uni0, price)
+		// shareUni := uniswap.Liquidity / liquidity
+		// profitUni0 := shareUni * volume0
+		// profitUni1 := shareUni * volume1
 
-		shareUni := uniswap.Liquidity / liquidity
-		profitUni0 := shareUni * volume0
-		profitUni1 := shareUni * volume1
+		// uniswap.Profit0 += profitUni0
+		// uniswap.Profit1 += profitUni1
+		// uniswap.Liquidity = (uni0 + profitUni0) * (uni1 + profitUni1)
 
-		uniswap.Profit0 += profitUni0
-		uniswap.Profit1 += profitUni1
-		uniswap.Liquidity = (uni0 + profitUni0) * (uni1 + profitUni1)
+		// log.Debug().
+		// 	Float64("uni0", uni0).
+		// 	Float64("uni1", uni1).
+		// 	Float64("share", shareUni).
+		// 	Float64("profit0", profitUni0).
+		// 	Float64("profit1", profitUni1).
+		// 	Float64("liquidity", uniswap.Liquidity).
+		// 	Msg("added profit to uniswap position")
 
-		log.Debug().
-			Float64("uni0", uni0).
-			Float64("uni1", uni1).
-			Float64("share", shareUni).
-			Float64("profit0", profitUni0).
-			Float64("profit1", profitUni1).
-			Float64("liquidity", uniswap.Liquidity).
-			Msg("added profit to uniswap position")
+		// auto0 := math.Sqrt(autohedge.Liquidity * price)
+		// auto1 := auto0 / price
+		// shareAuto := autohedge.Liquidity / liquidity
+		// profitAuto0 := shareAuto * volume0
+		// profitAuto1 := shareAuto * volume1
 
-		auto0 := math.Sqrt(autohedge.Liquidity * price)
-		auto1 := auto0 / price
-		shareAuto := autohedge.Liquidity / liquidity
-		profitAuto0 := shareAuto * volume0
-		profitAuto1 := shareAuto * volume1
+		// autohedge.Profit0 += profitAuto0
+		// autohedge.Profit1 += profitAuto1
+		// autohedge.Liquidity = (auto0 + profitAuto0) * (auto1 + profitAuto1)
 
-		autohedge.Profit0 += profitAuto0
-		autohedge.Profit1 += profitAuto1
-		autohedge.Liquidity = (auto0 + profitAuto0) * (auto1 + profitAuto1)
+		// log.Debug().
+		// 	Float64("auto0", auto0).
+		// 	Float64("auto1", auto1).
+		// 	Float64("share", shareAuto).
+		// 	Float64("profit0", profitAuto0).
+		// 	Float64("profit1", profitAuto1).
+		// 	Float64("liquidity", autohedge.Liquidity).
+		// 	Msg("added profit to autohedge position")
 
-		log.Debug().
-			Float64("auto0", auto0).
-			Float64("auto1", auto1).
-			Float64("share", shareAuto).
-			Float64("profit0", profitAuto0).
-			Float64("profit1", profitAuto1).
-			Float64("liquidity", autohedge.Liquidity).
-			Msg("added profit to autohedge position")
+		// position0 := math.Sqrt(autohedge.Liquidity * price)
+		// position1 := position0 / price
 
-		position0 := math.Sqrt(autohedge.Liquidity * price)
-		position1 := position0 / price
+		// // Uniswap v2 swap:
+		// // amountInMultplied := amountIn * 997
+		// // numerator := amountInMultiplied * reserveOut
+		// // denominator := resorveIn * 1000 + amountInMultiplied
+		// // amountOut := numerator / denominator
+		// // amountIn - amountOut = fee => solve?
 
-		// Uniswap v2 swap:
-		// amountInMultplied := amountIn * 997
-		// numerator := amountInMultiplied * reserveOut
-		// denominator := resorveIn * 1000 + amountInMultiplied
-		// amountOut := numerator / denominator
-		// amountIn - amountOut = fee => solve?
+		// switch {
 
-		switch {
+		// case position1 < (autohedge.Debt1+autohedge.Interest1)*(1-rehedgeRatio):
 
-		case position1 < (autohedge.Debt1+autohedge.Interest1)*(1-rehedgeRatio):
+		// 	delta1 := autohedge.Debt1 + autohedge.Interest1 - position1
+		// 	out1 := delta1 * (1 + swapRate)
+		// 	out0 := out1 * price
 
-			delta1 := autohedge.Debt1 + autohedge.Interest1 - position1
-			out1 := delta1 * (1 + swapRate)
-			out0 := out1 * price
+		// 	autohedge.Liquidity = (position0 - out0) * (position1 - out1)
+		// 	autohedge.Debt1 -= (out0/price + delta1)
+		// 	autohedge.Fees0 += out0 * swapRate
+		// 	autohedge.Cost0 += (swapGas + decreaseGas + addGas) * gasPrice1 * price
 
-			autohedge.Liquidity = (position0 - out0) * (position1 - out1)
-			autohedge.Debt1 -= (out0/price + delta1)
-			autohedge.Fees0 += out0 * swapRate
-			autohedge.Cost0 += (swapGas + decreaseGas + addGas) * gasPrice1 * price
+		// 	log.Debug().
+		// 		Float64("position0", position0).
+		// 		Float64("position1", position1).
+		// 		Float64("delta1", delta1).
+		// 		Float64("out1", out1).
+		// 		Float64("out0", out0).
+		// 		Float64("liquidity", autohedge.Liquidity).
+		// 		Float64("debt1", autohedge.Debt1).
+		// 		Float64("fees0", autohedge.Fees0).
+		// 		Float64("cost0", autohedge.Cost0).
+		// 		Msg("decreased debt to rehedge autoswap position")
 
-			log.Debug().
-				Float64("position0", position0).
-				Float64("position1", position1).
-				Float64("delta1", delta1).
-				Float64("out1", out1).
-				Float64("out0", out0).
-				Float64("liquidity", autohedge.Liquidity).
-				Float64("debt1", autohedge.Debt1).
-				Float64("fees0", autohedge.Fees0).
-				Float64("cost0", autohedge.Cost0).
-				Msg("decreased debt to rehedge autoswap position")
+		// case position1 > (autohedge.Debt1+autohedge.Interest1)*(1+rehedgeRatio):
 
-		case position1 > (autohedge.Debt1+autohedge.Interest1)*(1+rehedgeRatio):
+		// 	delta1 := position1 - autohedge.Debt1 - autohedge.Interest1
+		// 	in1 := delta1
+		// 	in0 := delta1 * price
 
-			delta1 := position1 - autohedge.Debt1 - autohedge.Interest1
-			in1 := delta1
-			in0 := delta1 * price
+		// 	autohedge.Liquidity = (position0 + in0) * (position1 + in1)
+		// 	autohedge.Debt1 += (in0/price + delta1*(1+swapRate))
+		// 	autohedge.Fees0 += in0 * swapRate
+		// 	autohedge.Cost0 += (swapGas + increaseGas + removeGas) * gasPrice1 * price
 
-			autohedge.Liquidity = (position0 + in0) * (position1 + in1)
-			autohedge.Debt1 += (in0/price + delta1*(1+swapRate))
-			autohedge.Fees0 += in0 * swapRate
-			autohedge.Cost0 += (swapGas + increaseGas + removeGas) * gasPrice1 * price
-
-			log.Debug().
-				Float64("position0", position0).
-				Float64("position1", position1).
-				Float64("delta1", delta1).
-				Float64("in1", in1).
-				Float64("in0", in0).
-				Float64("liquidity", autohedge.Liquidity).
-				Float64("debt1", autohedge.Debt1).
-				Float64("fees0", autohedge.Fees0).
-				Float64("cost0", autohedge.Cost0).
-				Msg("increased debt to rehedge autoswap position")
-		}
+		// 	log.Debug().
+		// 		Float64("position0", position0).
+		// 		Float64("position1", position1).
+		// 		Float64("delta1", delta1).
+		// 		Float64("in1", in1).
+		// 		Float64("in0", in0).
+		// 		Float64("liquidity", autohedge.Liquidity).
+		// 		Float64("debt1", autohedge.Debt1).
+		// 		Float64("fees0", autohedge.Fees0).
+		// 		Float64("cost0", autohedge.Cost0).
+		// 		Msg("increased debt to rehedge autoswap position")
+		// }
 
 		if writeResults {
 			writeHold(timestamp, price, hold, outbound)
@@ -491,11 +456,11 @@ func main() {
 		}
 
 		log.Info().
-			Float64("price", price*d18/d6).
-			Float64("hold0", hold.Value0(price)/d6).
-			Float64("uniswap0", uniswap.Value0(price)/d6).
-			Float64("autohedge0", autohedge.Value0(price)/d6).
-			Msg("updated position valuations")
+			Float64("price", b.ToFloat(price, 6)).
+			Float64("hold", b.ToFloat(hold.Value0(price), 6)).
+			Float64("uniswap", b.ToFloat(uniswap.Value0(price), 6)).
+			Float64("autohedge", b.ToFloat(autohedge.Value0(price), 6)).
+			Msg("position values updated")
 	}
 
 	err = result.Err()
