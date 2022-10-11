@@ -5,7 +5,11 @@ import (
 	"math/big"
 )
 
-func FromHex(s string) *big.Int {
+func FromHex(v interface{}) *big.Int {
+	s, ok := v.(string)
+	if !ok {
+		return big.NewInt(0)
+	}
 	bytes, err := hex.DecodeString(s)
 	if err != nil {
 		panic(err)

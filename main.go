@@ -160,8 +160,8 @@ func main() {
 
 	// We keep rate of loan interest rates as 1/10^27 units (Ray)
 	flashRate := big.NewInt(0).Mul(big.NewInt(int64(flagFlashRate*10_000)), b.E23)
-	loanRate := big.NewInt(0).Mul(big.NewInt(int64(flagFlashRate*10_000)), b.E23)
-	borrowRate := big.NewInt(0).Mul(big.NewInt(int64(flagFlashRate*10_000)), b.E23)
+	loanRate := big.NewInt(0).Mul(big.NewInt(int64(flagLoanRate*10_000)), b.E23)
+	borrowRate := big.NewInt(0).Mul(big.NewInt(int64(flagBorrowRate*10_000)), b.E23)
 
 	// Convert the gas costs into big integers.
 	approveGas := big.NewInt(0).SetUint64(flagApproveGas) // approve ERC20 transfer
@@ -191,11 +191,8 @@ func main() {
 	// NOTE: this is because InfluxDB doesn't support number above 64 bits, and
 	// with `float64` we get too much imprecision. QuestDB supports 256-bit
 	// integers and might be the better option.
-	rs0 := values["reserve0"].(string)
-	rs1 := values["reserve1"].(string)
-
-	reserve0 := b.FromHex(rs0)
-	reserve1 := b.FromHex(rs1)
+	reserve0 := b.FromHex(values["reserve0"])
+	reserve1 := b.FromHex(values["reserve1"])
 
 	gasPrice1, err := station.Gasprice(timestamp)
 	if err != nil {
@@ -302,15 +299,11 @@ func main() {
 		timestamp := record.Time()
 		values := record.Values()
 
-		rs0 := values["reserve0"].(string)
-		rs1 := values["reserve1"].(string)
-		vs0 := values["volume0"].(string)
-		vs1 := values["volume1"].(string)
+		reserve0 := b.FromHex(values["reserve0"])
+		reserve1 := b.FromHex(values["reserve1"])
 
-		reserve0 := b.FromHex(rs0)
-		reserve1 := b.FromHex(rs1)
-		volume0 := b.FromHex(vs0)
-		volume1 := b.FromHex(vs1)
+		volume0 := b.FromHex(values["volume0"])
+		volume1 := b.FromHex(values["volume1"])
 
 		log := log.With().
 			Time("timestamp", timestamp).
@@ -326,6 +319,7 @@ func main() {
 		elapsed := big.NewInt(int64(timestamp.Sub(last).Seconds()))
 
 		realLoanRate := util.CalculateCompoundedInterest(loanRate, elapsed)
+		fmt.Println(realLoanRate)
 		yieldDelta0 := big.NewInt(0).Add(autohedge.Principal0, autohedge.Yield0)
 		yieldDelta0.Mul(yieldDelta0, realLoanRate)
 		yieldDelta0.Div(yieldDelta0, b.E27)
@@ -339,7 +333,7 @@ func main() {
 
 		last = timestamp
 
-		log.Debug().
+		log.Info().
 			Float64("principal0", b.ToFloat(autohedge.Principal0, 6)).
 			Float64("yield0", b.ToFloat(autohedge.Yield0, 6)).
 			Float64("gain0", b.ToFloat(yieldDelta0, 6)).
@@ -455,11 +449,11 @@ func main() {
 			writeAutohedge(timestamp, reserve0, reserve1, autohedge, outbound)
 		}
 
-		log.Info().
-			Float64("hold", b.ToFloat(hold.Value0(reserve0, reserve1), 6)).
-			Float64("uniswap", b.ToFloat(uniswap.Value0(reserve0, reserve1), 6)).
-			Float64("autohedge", b.ToFloat(autohedge.Value0(reserve0, reserve1), 6)).
-			Msg("position values updated")
+		// log.Info().
+		// 	Float64("hold", b.ToFloat(hold.Value0(reserve0, reserve1), 6)).
+		// 	Float64("uniswap", b.ToFloat(uniswap.Value0(reserve0, reserve1), 6)).
+		// 	Float64("autohedge", b.ToFloat(autohedge.Value0(reserve0, reserve1), 6)).
+		// 	Msg("position values updated")
 	}
 
 	err = result.Err()

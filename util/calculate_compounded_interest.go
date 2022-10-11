@@ -11,7 +11,7 @@ import (
 func CalculateCompoundedInterest(rate *big.Int, exp *big.Int) *big.Int {
 
 	if exp.Cmp(b.D0) == 0 {
-		return b.E27
+		return big.NewInt(0)
 	}
 
 	em1 := big.NewInt(0).Sub(exp, b.D1)
@@ -21,8 +21,14 @@ func CalculateCompoundedInterest(rate *big.Int, exp *big.Int) *big.Int {
 	}
 
 	rps := big.NewInt(0).Div(rate, b.SPY)
+
 	bp2 := big.NewInt(0).Mul(rps, rps)
+	bp2.Add(bp2, b.HALF)
+	bp2.Div(bp2, b.E27)
+
 	bp3 := big.NewInt(0).Mul(bp2, rps)
+	bp3.Add(bp3, b.HALF)
+	bp3.Div(bp3, b.E27)
 
 	t1 := big.NewInt(0).Mul(exp, rps)
 
@@ -35,8 +41,7 @@ func CalculateCompoundedInterest(rate *big.Int, exp *big.Int) *big.Int {
 	t3.Mul(t3, bp3)
 	t3.Div(t3, b.D6)
 
-	out := big.NewInt(0).Add(b.E27, t1)
-	out.Add(out, t2)
+	out := big.NewInt(0).Add(t1, t2)
 	out.Add(out, t3)
 
 	return out
