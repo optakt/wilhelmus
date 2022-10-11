@@ -37,7 +37,7 @@ func main() {
 		inputValue       uint64
 		startTime        string
 		endTime          string
-		flagRehedgeRatio uint64
+		flagRehedgeRatio float64
 
 		influxAPI             string
 		influxToken           string
@@ -77,7 +77,7 @@ func main() {
 	pflag.Uint64VarP(&inputValue, "input-value", "i", 1_000_000, "stable coin input amount")
 	pflag.StringVarP(&startTime, "start-time", "s", "2021-10-07T00:00:00Z", "start timestamp for the backtest")
 	pflag.StringVarP(&endTime, "end-time", "e", "2022-10-07T23:59:59Z", "end timestamp for the backtest")
-	pflag.Uint64VarP(&flagRehedgeRatio, "rehedge-ratio", "r", 100, "ratio between debt and collateral at which we rehedge (in 1/10000)")
+	pflag.Float64VarP(&flagRehedgeRatio, "rehedge-ratio", "r", 0.01, "ratio between debt and collateral at which we rehedge")
 
 	pflag.StringVarP(&influxAPI, "influx-api", "a", "https://eu-central-1-1.aws.cloud2.influxdata.com", "InfluxDB API URL")
 	pflag.StringVarP(&influxToken, "influx-token", "t", "", "InfluxDB authentication token")
@@ -153,7 +153,7 @@ func main() {
 	input0.Mul(input0, b.E6) // USDC has 6 decimals, we want to operate at the most granular level
 
 	// Convert the hedge ratio to big integer.
-	rehedgeRatio := big.NewInt(0).SetUint64(flagRehedgeRatio)
+	rehedgeRatio := big.NewInt(int64(flagRehedgeRatio * 1_000))
 
 	// We keep track of the flash rate as 1/1000 units
 	swapRate := big.NewInt(int64(flagSwapRate * 1_000))
@@ -169,16 +169,16 @@ func main() {
 	flashGas := big.NewInt(0).SetUint64(flagFlashGas)     // take out a flash loan on Aave
 
 	createGas := big.NewInt(0).SetUint64(flagCreateGas) // create liquidity position on Uniswap v2
-	// addGas := big.NewInt(0).SetUint64(flagAddGas)       // add liquidity on Uniswap v2
-	// removeGas := big.NewInt(0).SetUint64(flagRemoveGas) // remove liquidity on Uniswap v2
+	addGas := big.NewInt(0).SetUint64(flagAddGas)       // add liquidity on Uniswap v2
+	removeGas := big.NewInt(0).SetUint64(flagRemoveGas) // remove liquidity on Uniswap v2
 	// closeCas := big.NewInt(0).SetUint64(flagCloseGas)   // close liquidity position on Uniswap v2
 
 	lendGas := big.NewInt(0).SetUint64(flagLendGas) // lend asset on Aave
 	// claimGas := big.NewInt(0).SetUint64(flagClaimGas) // claim loan plus yield on Aave
 
-	borrowGas := big.NewInt(0).SetUint64(flagBorrowGas) // borrow asset on Aave
-	// increaseGas := big.NewInt(0).SetUint64(flagIncreaseGas) // increase debt on Aaave
-	// decreaseGas := big.NewInt(0).SetUint64(flagDecreaseGas) // decrease debt on Aave
+	borrowGas := big.NewInt(0).SetUint64(flagBorrowGas)     // borrow asset on Aave
+	increaseGas := big.NewInt(0).SetUint64(flagIncreaseGas) // increase debt on Aaave
+	decreaseGas := big.NewInt(0).SetUint64(flagDecreaseGas) // decrease debt on Aave
 	// repayGas := big.NewInt(0).SetUint64(flagRepayGas)       // repoy loan on Aave
 
 	// Read the first record to initialize the positions.
@@ -400,64 +400,107 @@ func main() {
 			Float64("liquidity", b.ToFloat(autohedge.Liquidity, 24)).
 			Msg("added profit to autohedge position")
 
-		// position0 := math.Sqrt(autohedge.Liquidity * price)
-		// position1 := position0 / price
+		position0 := big.NewInt(0).Mul(autohedge.Liquidity, reserve0)
+		position0.Div(position0, reserve1)
+		position0.Sqrt(position0)
 
-		// // Uniswap v2 swap:
-		// // amountInMultplied := amountIn * 997
-		// // numerator := amountInMultiplied * reserveOut
-		// // denominator := resorveIn * 1000 + amountInMultiplied
-		// // amountOut := numerator / denominator
-		// // amountIn - amountOut = fee => solve?
+		position1 := util.Quote(position0, reserve0, reserve1)
 
-		// switch {
+		totalDebt1 := big.NewInt(0).Add(autohedge.Debt1, autohedge.Interest1)
 
-		// case position1 < (autohedge.Debt1+autohedge.Interest1)*(1-rehedgeRatio):
+		diff1 := big.NewInt(0).Mul(totalDebt1, rehedgeRatio)
+		diff1.Div(diff1, b.E3)
 
-		// 	delta1 := autohedge.Debt1 + autohedge.Interest1 - position1
-		// 	out1 := delta1 * (1 + swapRate)
-		// 	out0 := out1 * price
+		bigger1 := big.NewInt(0).Add(totalDebt1, diff1)
+		smaller1 := big.NewInt(0).Sub(totalDebt1, diff1)
 
-		// 	autohedge.Liquidity = (position0 - out0) * (position1 - out1)
-		// 	autohedge.Debt1 -= (out0/price + delta1)
-		// 	autohedge.Fees0 += out0 * swapRate
-		// 	autohedge.Cost0 += (swapGas + decreaseGas + addGas) * gasPrice1 * price
+		switch {
 
-		// 	log.Debug().
-		// 		Float64("position0", position0).
-		// 		Float64("position1", position1).
-		// 		Float64("delta1", delta1).
-		// 		Float64("out1", out1).
-		// 		Float64("out0", out0).
-		// 		Float64("liquidity", autohedge.Liquidity).
-		// 		Float64("debt1", autohedge.Debt1).
-		// 		Float64("fees0", autohedge.Fees0).
-		// 		Float64("cost0", autohedge.Cost0).
-		// 		Msg("decreased debt to rehedge autoswap position")
+		case position1.Cmp(smaller1) < 0:
 
-		// case position1 > (autohedge.Debt1+autohedge.Interest1)*(1+rehedgeRatio):
+			delta1 := big.NewInt(0).Sub(totalDebt1, position1)
 
-		// 	delta1 := position1 - autohedge.Debt1 - autohedge.Interest1
-		// 	in1 := delta1
-		// 	in0 := delta1 * price
+			fee1 := big.NewInt(0).Mul(delta1, swapRate)
+			fee1.Div(fee1, b.E3)
 
-		// 	autohedge.Liquidity = (position0 + in0) * (position1 + in1)
-		// 	autohedge.Debt1 += (in0/price + delta1*(1+swapRate))
-		// 	autohedge.Fees0 += in0 * swapRate
-		// 	autohedge.Cost0 += (swapGas + increaseGas + removeGas) * gasPrice1 * price
+			fee0 := util.Quote(fee1, reserve1, reserve0)
 
-		// 	log.Debug().
-		// 		Float64("position0", position0).
-		// 		Float64("position1", position1).
-		// 		Float64("delta1", delta1).
-		// 		Float64("in1", in1).
-		// 		Float64("in0", in0).
-		// 		Float64("liquidity", autohedge.Liquidity).
-		// 		Float64("debt1", autohedge.Debt1).
-		// 		Float64("fees0", autohedge.Fees0).
-		// 		Float64("cost0", autohedge.Cost0).
-		// 		Msg("increased debt to rehedge autoswap position")
-		// }
+			out1 := big.NewInt(0).Add(delta1, fee1)
+			position1.Sub(position1, out1)
+
+			out0 := util.Quote(out1, reserve1, reserve0)
+			position0.Sub(position0, out0)
+
+			cost1 := big.NewInt(0).Add(removeGas, swapGas)
+			cost1.Add(cost1, decreaseGas)
+			cost1.Mul(cost1, gasPrice1)
+
+			cost0 := util.Quote(cost1, reserve1, reserve0)
+
+			autohedge.Liquidity = big.NewInt(0).Mul(position0, position1)
+
+			autohedge.Debt1.Sub(autohedge.Debt1, delta1)
+			autohedge.Debt1.Sub(autohedge.Debt1, out1)
+
+			autohedge.Fees0.Add(autohedge.Fees0, fee0)
+
+			autohedge.Cost0.Add(autohedge.Cost0, cost0)
+
+			log.Debug().
+				Float64("position0", b.ToFloat(position0, 6)).
+				Float64("position1", b.ToFloat(position1, 18)).
+				Float64("delta1", b.ToFloat(delta1, 18)).
+				Float64("out1", b.ToFloat(out1, 18)).
+				Float64("out0", b.ToFloat(out0, 6)).
+				Float64("liquidity", b.ToFloat(autohedge.Liquidity, 24)).
+				Float64("debt1", b.ToFloat(autohedge.Debt1, 18)).
+				Float64("fees0", b.ToFloat(autohedge.Fees0, 6)).
+				Float64("cost0", b.ToFloat(autohedge.Cost0, 6)).
+				Msg("decreased debt to rehedge autoswap position")
+
+		case position1.Cmp(bigger1) > 0:
+
+			delta1 := big.NewInt(0).Sub(position1, totalDebt1)
+
+			in1 := big.NewInt(0).Set(delta1)
+			position1.Add(position1, in1)
+
+			in0 := util.Quote(in1, reserve1, reserve0)
+			position0.Add(position0, in0)
+
+			autohedge.Liquidity = big.NewInt(0).Mul(position0, position1)
+
+			fee1 := big.NewInt(0).Mul(delta1, swapRate)
+			fee1.Div(fee1, b.E3)
+
+			fee0 := util.Quote(fee1, reserve1, reserve0)
+
+			cost1 := big.NewInt(0).Add(increaseGas, swapGas)
+			cost1.Add(cost1, addGas)
+			cost1.Mul(cost1, gasPrice1)
+
+			cost0 := util.Quote(cost1, reserve1, reserve0)
+
+			autohedge.Debt1.Add(autohedge.Debt1, in1)
+			autohedge.Debt1.Add(autohedge.Debt1, in1)
+			autohedge.Debt1.Add(autohedge.Debt1, fee1)
+
+			autohedge.Fees0.Add(autohedge.Fees0, fee0)
+
+			autohedge.Cost0.Add(autohedge.Cost0, cost0)
+
+			log.Debug().
+				Float64("position0", b.ToFloat(position0, 6)).
+				Float64("position1", b.ToFloat(position1, 18)).
+				Float64("delta1", b.ToFloat(delta1, 18)).
+				Float64("in1", b.ToFloat(in1, 18)).
+				Float64("in0", b.ToFloat(in0, 6)).
+				Float64("liquidity", b.ToFloat(autohedge.Liquidity, 24)).
+				Float64("debt1", b.ToFloat(autohedge.Debt1, 18)).
+				Float64("fees0", b.ToFloat(autohedge.Fees0, 6)).
+				Float64("cost0", b.ToFloat(autohedge.Cost0, 6)).
+				Msg("increased debt to rehedge autoswap position")
+		}
 
 		if writeResults {
 			writeHold(timestamp, reserve0, reserve1, hold, outbound)
