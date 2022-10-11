@@ -18,7 +18,7 @@ import (
 //		uint denominator = reserveOut.sub(amountOut).mul(997);
 //		amountIn = (numerator / denominator).add(1);
 //	}
-func GetAmountIn(amountOut *big.Int, reserveIn *big.Int, reserveOut *big.Int) *big.Int {
+func GetAmountIn(amountOut *big.Int, reserveOut *big.Int, reserveIn *big.Int) *big.Int {
 	numerator := big.NewInt(0).Mul(reserveIn, amountOut)
 	numerator.Mul(numerator, b.D1000)
 	denominator := big.NewInt(0).Sub(reserveOut, amountOut)

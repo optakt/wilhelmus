@@ -2,6 +2,8 @@ package position
 
 import (
 	"math/big"
+
+	"github.com/optakt/wilhelmus/util"
 )
 
 type Autohedge struct {
@@ -18,19 +20,19 @@ type Autohedge struct {
 	Cost0      *big.Int
 }
 
-func (a *Autohedge) Value0(price *big.Int) *big.Int {
+func (a *Autohedge) Value0(reserve0 *big.Int, reserve1 *big.Int) *big.Int {
 
 	big2 := big.NewInt(2)
 
-	debt0 := big.NewInt(0).Set(a.Debt1)
-	debt0.Mul(debt0, price)
+	debt0 := util.Quote(a.Debt1, reserve1, reserve0)
 
-	interest0 := big.NewInt(0).Set(a.Interest1)
-	interest0.Mul(interest0, price)
+	interest0 := util.Quote(a.Interest1, reserve1, reserve0)
 
-	value0 := big.NewInt(0).Set(a.Liquidity)
-	value0.Mul(value0, price)
+	value0 := big.NewInt(0).Mul(a.Liquidity, reserve0)
+	value0.Div(value0, reserve1)
+	value0.Sqrt(value0)
 	value0.Mul(value0, big2)
+
 	value0.Add(value0, a.Yield0)
 	value0.Sub(value0, debt0)
 	value0.Sub(value0, interest0)

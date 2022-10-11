@@ -22,7 +22,7 @@ const (
 	statement = `from(bucket: "uniswap")
 	|> range(start: %s, stop: %s)
 	|> filter(fn: (r) => r["_measurement"] == "ethereum")
-	|> filter(fn: (r) => r["pair"] == "WETH/USDC")
+	|> filter(fn: (r) => r["pair"] == "USDC/WETH")
 	|> filter(fn: (r) => r["_field"] == "volume0" or r["_field"] == "reserve1" or r["_field"] == "reserve0" or r["_field"] == "volume1")
 	|> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")`
 )
@@ -150,7 +150,7 @@ func main() {
 
 	// Convert the USD value given as input into a big integer.
 	input0 := big.NewInt(0).SetUint64(inputValue)
-	input0.Mul(input0, b.D6) // USDC has 6 decimals, we want to operate at the most granular level
+	input0.Mul(input0, b.E6) // USDC has 6 decimals, we want to operate at the most granular level
 
 	// Convert the hedge ratio to big integer.
 	rehedgeRatio := big.NewInt(0).SetUint64(flagRehedgeRatio)
@@ -242,9 +242,11 @@ func main() {
 		Cost0:     costUni0,
 	}
 
-	autoDivA := big.NewInt(0).Mul(flashRate, swapRate)
-	autoDivB := big.NewInt(0).Mul(flashRate, b.E3)
-	autoDiv := big.NewInt(0).Add(autoDivA, autoDivB)
+	autoDivA := big.NewInt(0).Mul(flashRate, swapRate) // 0.003 * 0.0009
+	autoDivB := big.NewInt(0).Mul(flashRate, b.E3)     // 0.0009
+
+	autoDiv := big.NewInt(0).Add(autoDivA, autoDivB) // 0.0009 + 0.003 * 0.0009
+	autoDiv.Add(autoDiv, b.E30)                      // 1 + 0.0009 + 0.003 * 0.0009
 
 	auto0 := big.NewInt(0).Mul(input0, b.E30)
 	auto0.Div(auto0, autoDiv)
@@ -279,20 +281,18 @@ func main() {
 		Cost0:      costAuto0,
 	}
 
-	price := big.NewInt(0).Div(reserve0, reserve1)
-
 	log.Info().
 		Time("timestamp", timestamp).
-		Float64("price", b.ToFloat(price, 6)).
-		Float64("hold", b.ToFloat(hold.Value0(price), 6)).
-		Float64("uniswap", b.ToFloat(uniswap.Value0(price), 6)).
-		Float64("autohedge", b.ToFloat(autohedge.Value0(price), 6)).
+		Float64("value", b.ToFloat(input0, 6)).
+		Float64("hold", b.ToFloat(hold.Value0(reserve0, reserve1), 6)).
+		Float64("uniswap", b.ToFloat(uniswap.Value0(reserve0, reserve1), 6)).
+		Float64("autohedge", b.ToFloat(autohedge.Value0(reserve0, reserve1), 6)).
 		Msg("position values initialized")
 
 	if writeResults {
-		writeHold(timestamp, price, hold, outbound)
-		writeUniswap(timestamp, price, uniswap, outbound)
-		writeAutohedge(timestamp, price, autohedge, outbound)
+		writeHold(timestamp, reserve0, reserve1, hold, outbound)
+		writeUniswap(timestamp, reserve0, reserve1, uniswap, outbound)
+		writeAutohedge(timestamp, reserve0, reserve1, autohedge, outbound)
 	}
 
 	last := timestamp
@@ -450,16 +450,15 @@ func main() {
 		// }
 
 		if writeResults {
-			writeHold(timestamp, price, hold, outbound)
-			writeUniswap(timestamp, price, uniswap, outbound)
-			writeAutohedge(timestamp, price, autohedge, outbound)
+			writeHold(timestamp, reserve0, reserve1, hold, outbound)
+			writeUniswap(timestamp, reserve0, reserve1, uniswap, outbound)
+			writeAutohedge(timestamp, reserve0, reserve1, autohedge, outbound)
 		}
 
 		log.Info().
-			Float64("price", b.ToFloat(price, 6)).
-			Float64("hold", b.ToFloat(hold.Value0(price), 6)).
-			Float64("uniswap", b.ToFloat(uniswap.Value0(price), 6)).
-			Float64("autohedge", b.ToFloat(autohedge.Value0(price), 6)).
+			Float64("hold", b.ToFloat(hold.Value0(reserve0, reserve1), 6)).
+			Float64("uniswap", b.ToFloat(uniswap.Value0(reserve0, reserve1), 6)).
+			Float64("autohedge", b.ToFloat(autohedge.Value0(reserve0, reserve1), 6)).
 			Msg("position values updated")
 	}
 
