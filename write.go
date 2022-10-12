@@ -67,6 +67,11 @@ func writeAutohedge(timestamp time.Time, reserve0 *big.Int, reserve1 *big.Int, a
 	debt0.Add(debt0, interest0)
 	debt0.Sub(debt0, autohedge.Yield0)
 
+	loss0 := big.NewInt(0).Add(autohedge.Fees0, autohedge.Cost0)
+	loss0.Add(loss0, interest0)
+
+	change0 := big.NewInt(0).Sub(autohedge.Profit0, loss0)
+
 	tags := map[string]string{
 		"strategy": "autohedge",
 		"chain":    "ethereum",
@@ -75,11 +80,14 @@ func writeAutohedge(timestamp time.Time, reserve0 *big.Int, reserve1 *big.Int, a
 		"rehedge":  rehedge,
 	}
 	fields := map[string]interface{}{
-		"value":  b.ToFloat(autohedge.Value0(reserve0, reserve1), 6),
-		"profit": b.ToFloat(autohedge.Profit0, 6),
-		"debt":   b.ToFloat(debt0, 6),
-		"fees":   b.ToFloat(autohedge.Fees0, 6),
-		"cost":   b.ToFloat(autohedge.Cost0, 6),
+		"value":     b.ToFloat(autohedge.Value0(reserve0, reserve1), 6),
+		"profit":    b.ToFloat(autohedge.Profit0, 6),
+		"loss":      b.ToFloat(loss0, 6),
+		"change":    b.ToFloat(change0, 6),
+		"principal": b.ToFloat(autohedge.Principal0, 6),
+		"debt":      b.ToFloat(debt0, 6),
+		"fees":      b.ToFloat(autohedge.Fees0, 6),
+		"cost":      b.ToFloat(autohedge.Cost0, 6),
 	}
 
 	point := write.NewPoint("uniswapv2", tags, fields, timestamp)
