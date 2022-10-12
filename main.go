@@ -19,11 +19,23 @@ import (
 	"github.com/optakt/wilhelmus/write"
 )
 
+var (
+	prices = map[string]string{
+		"ethereum": "gas-prices/ethereum.csv",
+		"polygon":  "gas-prices/polygon.csv",
+	}
+
+	pairs = map[string]string{
+		"ethereum": "USDC/WETH",
+		"polygon":  "USDC/WMATIC",
+	}
+)
+
 const (
 	statement = `from(bucket: "uniswap")
 	|> range(start: %s, stop: %s)
-	|> filter(fn: (r) => r["_measurement"] == "ethereum")
-	|> filter(fn: (r) => r["pair"] == "USDC/WETH")
+	|> filter(fn: (r) => r["_measurement"] == "%s")
+	|> filter(fn: (r) => r["pair"] == "%s")
 	|> filter(fn: (r) => r["_field"] == "volume0" or r["_field"] == "reserve1" or r["_field"] == "reserve0" or r["_field"] == "volume1")
 	|> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")`
 )
@@ -33,8 +45,8 @@ func main() {
 	var (
 		logLevel     string
 		writeResults bool
-		gasPrices    string
 
+		chain            string
 		inputValue       uint64
 		startTime        string
 		endTime          string
@@ -73,8 +85,8 @@ func main() {
 
 	pflag.StringVarP(&logLevel, "log-level", "l", "info", "Zerolog logger logging message severity")
 	pflag.BoolVarP(&writeResults, "write-results", "w", false, "whether to write the results back to InfluxDB")
-	pflag.StringVarP(&gasPrices, "gas-prices", "g", "gas-prices.csv", "CSV file for average gas price per day")
 
+	pflag.StringVarP(&chain, "chain", "c", "ethereum", "Web3 blockchain to work on")
 	pflag.Uint64VarP(&inputValue, "input-value", "i", 1_000_000, "stable coin input amount")
 	pflag.StringVarP(&startTime, "start-time", "s", "2021-10-07T00:00:00Z", "start timestamp for the backtest")
 	pflag.StringVarP(&endTime, "end-time", "e", "2022-10-07T23:59:59Z", "end timestamp for the backtest")
@@ -119,6 +131,16 @@ func main() {
 	}
 	log = log.Level(level)
 
+	gasPrices, ok := prices[chain]
+	if !ok {
+		log.Fatal().Str("chain", chain).Msg("no gas prices available for chain")
+	}
+
+	pair, ok := pairs[chain]
+	if !ok {
+		log.Fatal().Str("chain", chain).Msg("no pair available for chain")
+	}
+
 	station, err := station.New(gasPrices)
 	if err != nil {
 		log.Fatal().Err(err).Str("gas_prices", gasPrices).Msg("could not create gas station")
@@ -136,7 +158,7 @@ func main() {
 	}()
 
 	inbound := client.QueryAPI(influxOrg)
-	query := fmt.Sprintf(statement, startTime, endTime)
+	query := fmt.Sprintf(statement, startTime, endTime, chain, pair)
 	result, err := inbound.Query(context.Background(), query)
 	if err != nil {
 		log.Fatal().Err(err).Msg("could not execute query")
