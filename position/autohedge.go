@@ -10,14 +10,14 @@ type Autohedge struct {
 	Size       *big.Int
 	Rehedge    *big.Int
 	Liquidity  *big.Int
-	Profit0    *big.Int
-	Profit1    *big.Int
 	Principal0 *big.Int
-	Yield0     *big.Int
 	Debt1      *big.Int
+	Yield0     *big.Int
 	Interest1  *big.Int
 	Fees0      *big.Int
 	Cost0      *big.Int
+	Profit0    *big.Int
+	Profit1    *big.Int
 }
 
 func (a *Autohedge) Value0(reserve0 *big.Int, reserve1 *big.Int) *big.Int {
