@@ -29,9 +29,11 @@ func (a *Autohedge) Value0(reserve0 *big.Int, reserve1 *big.Int) *big.Int {
 
 	interest0 := util.Quote(a.Interest1, reserve1, reserve0)
 
-	value0 := big.NewInt(0).Mul(a.Liquidity, reserve0)
-	value0.Div(value0, reserve1)
-	value0.Sqrt(value0)
+	sqrtReserve0 := big.NewInt(0).Sqrt(reserve0)
+	sqrtReserve1 := big.NewInt(0).Sqrt(reserve1)
+
+	value0 := big.NewInt(0).Mul(a.Liquidity, sqrtReserve0)
+	value0.Div(value0, sqrtReserve1)
 	value0.Mul(value0, big2)
 
 	value0.Add(value0, a.Yield0)
