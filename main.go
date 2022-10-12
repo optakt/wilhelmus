@@ -556,6 +556,7 @@ func main() {
 			Float64("hold", b.ToFloat(hold.Value0(reserve0, reserve1), 6)).
 			Float64("uniswap", b.ToFloat(uniswap.Value0(reserve0, reserve1), 6)).
 			Float64("autohedge", b.ToFloat(autohedge.Value0(reserve0, reserve1), 6)).
+			Uint("count", autohedge.Count).
 			Msg("position values updated")
 	}
 
