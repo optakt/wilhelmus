@@ -38,9 +38,6 @@ func writeUniswap(timestamp time.Time, reserve0 *big.Int, reserve1 *big.Int, uni
 	number, suffix := humanize.ComputeSI(float64(uniswap.Size))
 	size := humanize.Ftoa(number) + suffix
 
-	profit0 := util.Quote(uniswap.Profit1, reserve1, reserve0)
-	profit0.Add(profit0, uniswap.Profit0)
-
 	tags := map[string]string{
 		"strategy": "uniswap",
 		"chain":    "ethereum",
@@ -48,7 +45,7 @@ func writeUniswap(timestamp time.Time, reserve0 *big.Int, reserve1 *big.Int, uni
 	}
 	fields := map[string]interface{}{
 		"value":  b.ToFloat(uniswap.Value0(reserve0, reserve1), 6),
-		"profit": b.ToFloat(profit0, 6),
+		"profit": b.ToFloat(uniswap.Profit0, 6),
 		"fees":   b.ToFloat(uniswap.Fees0, 6),
 		"cost":   b.ToFloat(uniswap.Cost0, 6),
 	}
@@ -65,9 +62,6 @@ func writeAutohedge(timestamp time.Time, reserve0 *big.Int, reserve1 *big.Int, a
 	rehedgeFloat, _ := big.NewFloat(0).SetInt(autohedge.Rehedge).Float64()
 	rehedge := humanize.Ftoa(rehedgeFloat/10) + "%"
 
-	profit0 := util.Quote(autohedge.Profit1, reserve1, reserve0)
-	profit0.Add(profit0, autohedge.Profit0)
-
 	interest0 := util.Quote(autohedge.Interest1, reserve1, reserve0)
 	debt0 := util.Quote(autohedge.Debt1, reserve1, reserve0)
 	debt0.Add(debt0, interest0)
@@ -82,7 +76,7 @@ func writeAutohedge(timestamp time.Time, reserve0 *big.Int, reserve1 *big.Int, a
 	}
 	fields := map[string]interface{}{
 		"value":  b.ToFloat(autohedge.Value0(reserve0, reserve1), 6),
-		"profit": b.ToFloat(profit0, 6),
+		"profit": b.ToFloat(autohedge.Profit0, 6),
 		"debt":   b.ToFloat(debt0, 6),
 		"fees":   b.ToFloat(autohedge.Fees0, 6),
 		"cost":   b.ToFloat(autohedge.Cost0, 6),

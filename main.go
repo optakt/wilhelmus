@@ -246,7 +246,6 @@ func main() {
 		Fees0:     feesUni0,
 		Cost0:     costUni0,
 		Profit0:   big.NewInt(0),
-		Profit1:   big.NewInt(1),
 	}
 
 	log.Debug().
@@ -296,7 +295,6 @@ func main() {
 		Yield0:     big.NewInt(0),
 		Interest1:  big.NewInt(0),
 		Profit0:    big.NewInt(0),
-		Profit1:    big.NewInt(0),
 		Count:      0,
 	}
 
@@ -389,20 +387,19 @@ func main() {
 		profitUni0.Div(profitUni0, b.E3)
 		profitUni0.Mul(profitUni0, uniswap.Liquidity)
 		profitUni0.Div(profitUni0, liquidity)
-
-		uniswap.Profit0.Add(uniswap.Profit0, profitUni0)
 		uni0.Add(uni0, profitUni0)
 
 		profitUni1 := big.NewInt(0).Mul(volume1, swapRate)
 		profitUni1.Div(profitUni1, b.E3)
 		profitUni1.Mul(profitUni1, swapRate)
 		profitUni1.Div(profitUni1, liquidity)
-
-		uniswap.Profit1.Add(uniswap.Profit1, profitUni1)
 		uni1.Add(uni1, profitUni1)
 
 		uniswap.Liquidity = big.NewInt(0).Mul(uni0, uni1)
 		uniswap.Liquidity.Sqrt(uniswap.Liquidity)
+
+		uniswap.Profit0.Add(uniswap.Profit0, profitUni0)
+		uniswap.Profit0.Add(uniswap.Profit0, util.Quote(profitUni1, reserve1, reserve0))
 
 		log.Debug().
 			Float64("amount0", b.ToFloat(uni0, 6)).
@@ -421,20 +418,19 @@ func main() {
 		profitAuto0.Div(profitAuto0, b.E3)
 		profitAuto0.Mul(profitAuto0, autohedge.Liquidity)
 		profitAuto0.Div(profitAuto0, liquidity)
-
-		autohedge.Profit0.Add(autohedge.Profit0, profitAuto0)
 		auto0.Add(auto0, profitAuto0)
 
 		profitAuto1 := big.NewInt(0).Mul(volume1, swapRate)
 		profitAuto1.Div(profitAuto1, b.E3)
 		profitAuto1.Mul(profitAuto1, autohedge.Liquidity)
 		profitAuto1.Div(profitAuto1, liquidity)
-
-		autohedge.Profit1.Add(autohedge.Profit1, profitAuto1)
 		auto1.Add(auto1, profitAuto1)
 
 		autohedge.Liquidity = big.NewInt(0).Mul(auto0, auto1)
 		autohedge.Liquidity.Sqrt(autohedge.Liquidity)
+
+		autohedge.Profit0.Add(autohedge.Profit0, profitAuto0)
+		autohedge.Profit0.Add(autohedge.Profit0, util.Quote(profitUni1, reserve1, reserve0))
 
 		log.Debug().
 			Float64("amount0", b.ToFloat(auto0, 6)).

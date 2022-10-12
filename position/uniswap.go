@@ -10,7 +10,6 @@ type Uniswap struct {
 	Fees0     *big.Int
 	Cost0     *big.Int
 	Profit0   *big.Int
-	Profit1   *big.Int
 }
 
 func (u Uniswap) Value0(reserve0 *big.Int, reserve1 *big.Int) *big.Int {

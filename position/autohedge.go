@@ -17,7 +17,6 @@ type Autohedge struct {
 	Fees0      *big.Int
 	Cost0      *big.Int
 	Profit0    *big.Int
-	Profit1    *big.Int
 	Count      uint
 }
 
