@@ -7,7 +7,7 @@ import (
 )
 
 type Hold struct {
-	Size    *big.Int
+	Size    uint64
 	Amount0 *big.Int
 	Amount1 *big.Int
 	Fees0   *big.Int

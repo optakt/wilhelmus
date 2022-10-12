@@ -215,7 +215,7 @@ func main() {
 	costHold0 := util.Quote(costHold1, reserve1, reserve0)
 
 	hold := position.Hold{
-		Size:    input0,
+		Size:    inputValue,
 		Amount0: hold0,
 		Amount1: hold1,
 		Fees0:   fee0,
@@ -229,7 +229,8 @@ func main() {
 		Float64("cost0", b.ToFloat(hold.Cost0, 18)).
 		Msg("hold position initialized")
 
-	liquidityUni := big.NewInt(0).Mul(hold0, hold1)
+	liqUni := big.NewInt(0).Mul(hold0, hold1)
+	liqUni.Sqrt(liqUni)
 
 	feesUni0 := big.NewInt(0).Set(hold.Fees0)
 
@@ -240,8 +241,8 @@ func main() {
 	costUni0 := util.Quote(costUni1, reserve1, reserve0)
 
 	uniswap := position.Uniswap{
-		Size:      input0,
-		Liquidity: liquidityUni,
+		Size:      inputValue,
+		Liquidity: liqUni,
 		Fees0:     feesUni0,
 		Cost0:     costUni0,
 		Profit0:   big.NewInt(0),
@@ -266,7 +267,8 @@ func main() {
 
 	auto1 := util.Quote(auto0, reserve0, reserve1)
 
-	liquidityAuto := big.NewInt(0).Mul(auto0, auto1)
+	liqAuto := big.NewInt(0).Mul(auto0, auto1)
+	liqAuto.Sqrt(liqAuto)
 
 	principal0 := big.NewInt(0).Add(auto0, auto0)
 
@@ -283,9 +285,9 @@ func main() {
 	costAuto0 := util.Quote(costAuto1, reserve1, reserve0)
 
 	autohedge := position.Autohedge{
-		Size:       input0,
+		Size:       inputValue,
 		Rehedge:    rehedgeRatio,
-		Liquidity:  liquidityAuto,
+		Liquidity:  liqAuto,
 		Principal0: principal0,
 		Debt1:      auto1,
 		Fees0:      autoFee0,
@@ -294,6 +296,7 @@ func main() {
 		Interest1:  big.NewInt(0),
 		Profit0:    big.NewInt(0),
 		Profit1:    big.NewInt(0),
+		Count:      0,
 	}
 
 	log.Debug().
@@ -333,7 +336,7 @@ func main() {
 		volume1 := b.FromHex(values["volume1"])
 
 		liquidity := big.NewInt(0).Mul(reserve0, reserve1)
-		liqSqrt := big.NewInt(0).Sqrt(liquidity)
+		liquidity.Sqrt(liquidity)
 
 		log := log.With().
 			Time("timestamp", timestamp).
@@ -372,24 +375,22 @@ func main() {
 			Float64("loss1", b.ToFloat(interestDelta1, 18)).
 			Msg("compounded principal yield and debt interest")
 
-		uniLiqSqrt := big.NewInt(0).Sqrt(uniswap.Liquidity)
-
 		uni0 := big.NewInt(0).Mul(uniswap.Liquidity, reserve0)
 		uni0.Div(uni0, reserve1)
 		uni0.Sqrt(uni0)
 
 		uni1 := util.Quote(uni0, reserve0, reserve1)
 
-		profitUni0 := big.NewInt(0).Mul(volume0, uniLiqSqrt)
-		profitUni0.Div(profitUni0, liqSqrt)
+		profitUni0 := big.NewInt(0).Mul(volume0, uniswap.Liquidity)
+		profitUni0.Div(profitUni0, liquidity)
 		profitUni0.Mul(profitUni0, swapRate)
 		profitUni0.Div(profitUni0, b.E3)
 
 		uniswap.Profit0.Add(uniswap.Profit0, profitUni0)
 		uni0.Add(uni0, profitUni0)
 
-		profitUni1 := big.NewInt(0).Mul(volume1, uniLiqSqrt)
-		profitUni1.Div(profitUni1, liqSqrt)
+		profitUni1 := big.NewInt(0).Mul(volume1, uniswap.Liquidity)
+		profitUni1.Div(profitUni1, liquidity)
 		profitUni1.Mul(profitUni1, swapRate)
 		profitUni1.Div(profitUni1, b.E3)
 
@@ -406,24 +407,22 @@ func main() {
 			Float64("liquidity", b.ToFloat(uniswap.Liquidity, 24)).
 			Msg("added profit touniswap position")
 
-		autoLiqSqrt := big.NewInt(0).Sqrt(autohedge.Liquidity)
-
 		auto0 := big.NewInt(0).Mul(autohedge.Liquidity, reserve0)
 		auto0.Div(auto0, reserve1)
 		auto0.Sqrt(auto0)
 
 		auto1 := util.Quote(auto0, reserve0, reserve1)
 
-		profitAuto0 := big.NewInt(0).Mul(volume0, autoLiqSqrt)
-		profitAuto0.Div(profitAuto0, liqSqrt)
+		profitAuto0 := big.NewInt(0).Mul(volume0, autohedge.Liquidity)
+		profitAuto0.Div(profitAuto0, liquidity)
 		profitAuto0.Mul(profitAuto0, swapRate)
 		profitAuto0.Div(profitAuto0, b.E3)
 
 		autohedge.Profit0.Add(autohedge.Profit0, profitAuto0)
 		auto0.Add(auto0, profitAuto0)
 
-		profitAuto1 := big.NewInt(0).Mul(volume1, autoLiqSqrt)
-		profitAuto1.Div(profitAuto1, liqSqrt)
+		profitAuto1 := big.NewInt(0).Mul(volume1, autohedge.Liquidity)
+		profitAuto1.Div(profitAuto1, liquidity)
 		profitAuto1.Mul(profitAuto1, swapRate)
 		profitAuto1.Div(profitAuto1, b.E3)
 
@@ -486,6 +485,8 @@ func main() {
 
 			autohedge.Cost0.Add(autohedge.Cost0, cost0)
 
+			autohedge.Count++
+
 			log.Debug().
 				Float64("position0", b.ToFloat(position0, 6)).
 				Float64("position1", b.ToFloat(position1, 18)).
@@ -496,38 +497,37 @@ func main() {
 				Float64("debt1", b.ToFloat(autohedge.Debt1, 18)).
 				Float64("fees0", b.ToFloat(autohedge.Fees0, 6)).
 				Float64("cost0", b.ToFloat(autohedge.Cost0, 6)).
+				Uint("count", autohedge.Count).
 				Msg("decreased debt to rehedge autoswap position")
 
 		case position1.Cmp(bigger1) > 0:
 
 			delta1 := big.NewInt(0).Sub(position1, totalDebt1)
 
-			in1 := big.NewInt(0).Set(delta1)
+			invRate := big.NewInt(0).Sub(b.E3, swapRate)
+			in1 := big.NewInt(0).Mul(delta1, invRate)
+			in1.Div(in1, b.E3)
 			position1.Add(position1, in1)
+			autohedge.Debt1.Add(autohedge.Debt1, in1)
 
-			in0 := util.Quote(in1, reserve1, reserve0)
+			in0 := util.Quote(delta1, reserve1, reserve0)
 			position0.Add(position0, in0)
+			autohedge.Debt1.Add(autohedge.Debt1, in1)
 
-			autohedge.Liquidity = big.NewInt(0).Mul(position0, position1)
-
-			fee1 := big.NewInt(0).Mul(delta1, swapRate)
-			fee1.Div(fee1, b.E3)
-
+			fee1 := big.NewInt(0).Sub(delta1, in1)
 			fee0 := util.Quote(fee1, reserve1, reserve0)
+			autohedge.Fees0.Add(autohedge.Fees0, fee0)
+			autohedge.Debt1.Add(autohedge.Debt1, fee1)
 
 			cost1 := big.NewInt(0).Add(increaseGas, swapGas)
 			cost1.Add(cost1, addGas)
 			cost1.Mul(cost1, gasPrice1)
-
 			cost0 := util.Quote(cost1, reserve1, reserve0)
-
-			autohedge.Debt1.Add(autohedge.Debt1, in1)
-			autohedge.Debt1.Add(autohedge.Debt1, in1)
-			autohedge.Debt1.Add(autohedge.Debt1, fee1)
-
-			autohedge.Fees0.Add(autohedge.Fees0, fee0)
-
 			autohedge.Cost0.Add(autohedge.Cost0, cost0)
+
+			autohedge.Liquidity = big.NewInt(0).Mul(position0, position1)
+
+			autohedge.Count++
 
 			log.Debug().
 				Float64("position0", b.ToFloat(position0, 6)).
@@ -539,7 +539,10 @@ func main() {
 				Float64("debt1", b.ToFloat(autohedge.Debt1, 18)).
 				Float64("fees0", b.ToFloat(autohedge.Fees0, 6)).
 				Float64("cost0", b.ToFloat(autohedge.Cost0, 6)).
+				Uint("count", autohedge.Count).
 				Msg("increased debt to rehedge autoswap position")
+
+			panic("end")
 		}
 
 		if writeResults {

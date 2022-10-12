@@ -7,7 +7,7 @@ import (
 )
 
 type Autohedge struct {
-	Size       *big.Int
+	Size       uint64
 	Rehedge    *big.Int
 	Liquidity  *big.Int
 	Principal0 *big.Int
@@ -18,6 +18,7 @@ type Autohedge struct {
 	Cost0      *big.Int
 	Profit0    *big.Int
 	Profit1    *big.Int
+	Count      uint
 }
 
 func (a *Autohedge) Value0(reserve0 *big.Int, reserve1 *big.Int) *big.Int {
