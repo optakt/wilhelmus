@@ -16,6 +16,7 @@ import (
 	"github.com/optakt/wilhelmus/position"
 	"github.com/optakt/wilhelmus/station"
 	"github.com/optakt/wilhelmus/util"
+	"github.com/optakt/wilhelmus/write"
 )
 
 const (
@@ -317,9 +318,9 @@ func main() {
 		Msg("position values initialized")
 
 	if writeResults {
-		writeHold(timestamp, reserve0, reserve1, hold, outbound)
-		writeUniswap(timestamp, reserve0, reserve1, uniswap, outbound)
-		writeAutohedge(timestamp, reserve0, reserve1, autohedge, outbound)
+		write.HoldPoint(timestamp, reserve0, reserve1, hold, outbound)
+		write.UniswapPoint(timestamp, reserve0, reserve1, uniswap, outbound)
+		write.AutohedgePoint(timestamp, reserve0, reserve1, autohedge, outbound)
 	}
 
 	last := timestamp
@@ -543,9 +544,9 @@ func main() {
 		}
 
 		if writeResults {
-			writeHold(timestamp, reserve0, reserve1, hold, outbound)
-			writeUniswap(timestamp, reserve0, reserve1, uniswap, outbound)
-			writeAutohedge(timestamp, reserve0, reserve1, autohedge, outbound)
+			write.HoldPoint(timestamp, reserve0, reserve1, hold, outbound)
+			write.UniswapPoint(timestamp, reserve0, reserve1, uniswap, outbound)
+			write.AutohedgePoint(timestamp, reserve0, reserve1, autohedge, outbound)
 		}
 
 		log.Info().
