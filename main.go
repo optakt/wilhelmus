@@ -448,18 +448,18 @@ func main() {
 		position0.Div(position0, sqrtReserve1)
 		position1 := util.Quote(position0, reserve0, reserve1)
 
-		totalDebt1 := big.NewInt(0).Add(autohedge.Debt1, autohedge.Interest1)
-		diff1 := big.NewInt(0).Mul(totalDebt1, rehedgeRatio)
+		debt1 := big.NewInt(0).Add(autohedge.Debt1, autohedge.Interest1)
+		diff1 := big.NewInt(0).Mul(debt1, rehedgeRatio)
 		diff1.Div(diff1, b.E3)
 
-		bigger1 := big.NewInt(0).Add(totalDebt1, diff1)
-		smaller1 := big.NewInt(0).Sub(totalDebt1, diff1)
+		bigger1 := big.NewInt(0).Add(debt1, diff1)
+		smaller1 := big.NewInt(0).Sub(debt1, diff1)
 
 		switch {
 
 		case position1.Cmp(smaller1) < 0:
 
-			delta1 := big.NewInt(0).Sub(totalDebt1, position1)
+			delta1 := big.NewInt(0).Sub(debt1, position1)
 
 			swapMul := big.NewInt(0).Add(b.E3, swapRate)
 			out1 := big.NewInt(0).Mul(delta1, swapMul)
@@ -475,7 +475,7 @@ func main() {
 
 			autohedge.Debt1.Sub(autohedge.Debt1, out1)
 			autohedge.Debt1.Sub(autohedge.Debt1, out1)
-			autohedge.Debt1.Sub(autohedge.Debt1, fee1)
+			autohedge.Debt1.Add(autohedge.Debt1, fee1)
 
 			cost1 := big.NewInt(0).Add(removeGas, swapGas)
 			cost1.Add(cost1, decreaseGas)
@@ -501,11 +501,9 @@ func main() {
 				Uint("count", autohedge.Count).
 				Msg("decreased debt to rehedge autoswap position")
 
-			panic("decreased")
-
 		case position1.Cmp(bigger1) > 0:
 
-			delta1 := big.NewInt(0).Sub(position1, totalDebt1)
+			delta1 := big.NewInt(0).Sub(position1, debt1)
 
 			rateMulti := big.NewInt(0).Sub(b.E3, swapRate)
 			in1 := big.NewInt(0).Mul(delta1, rateMulti)
@@ -546,8 +544,6 @@ func main() {
 				Float64("cost0", b.ToFloat(autohedge.Cost0, 6)).
 				Uint("count", autohedge.Count).
 				Msg("increased debt to rehedge autoswap position")
-
-			panic("increased")
 		}
 
 		if writeResults {
