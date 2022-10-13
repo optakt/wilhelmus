@@ -19,22 +19,11 @@ import (
 	"github.com/optakt/wilhelmus/write"
 )
 
-var (
-	prices = map[string]string{
-		"ethereum": "gas-prices/ethereum.csv",
-		"polygon":  "gas-prices/polygon.csv",
-	}
-
-	pairs = map[string]string{
-		"ethereum": "USDC/WETH",
-		"polygon":  "USDC/WMATIC",
-	}
-)
-
 const (
-	statement = `from(bucket: "uniswap")
+	statement = `from(bucket: "metrics")
 	|> range(start: %s, stop: %s)
-	|> filter(fn: (r) => r["_measurement"] == "%s")
+	|> filter(fn: (r) => r["_measurement"] == "Uniswap v2")
+	|> filter(fn: (r) => r["chain"] == "%s")
 	|> filter(fn: (r) => r["pair"] == "%s")
 	|> filter(fn: (r) => r["_field"] == "volume0" or r["_field"] == "reserve1" or r["_field"] == "reserve0" or r["_field"] == "volume1")
 	|> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")`
@@ -46,18 +35,19 @@ func main() {
 		logLevel     string
 		writeResults bool
 
-		chain            string
-		inputValue       uint64
+		chainName        string
+		pairName         string
 		startTime        string
 		endTime          string
+		gasPrices        string
+		inputValue       uint64
 		flagRehedgeRatio float64
 
-		influxAPI             string
-		influxToken           string
-		influxOrg             string
-		influxTimeout         time.Duration
-		influxBucketUniswap   string
-		influxBucketPositions string
+		influxAPI              string
+		influxToken            string
+		influxOrg              string
+		influxBucketMetrics    string
+		influxBucketStrategies string
 
 		flagSwapRate   float64
 		flagFlashRate  float64
@@ -83,21 +73,25 @@ func main() {
 		flagRepayGas    uint64
 	)
 
+	now := time.Now().UTC()
+	oya := now.AddDate(-1, 0, 0)
+
 	pflag.StringVarP(&logLevel, "log-level", "l", "info", "Zerolog logger logging message severity")
 	pflag.BoolVarP(&writeResults, "write-results", "w", false, "whether to write the results back to InfluxDB")
 
-	pflag.StringVarP(&chain, "chain", "c", "ethereum", "Web3 blockchain to work on")
-	pflag.Uint64VarP(&inputValue, "input-value", "i", 1_000_000, "stable coin input amount")
-	pflag.StringVarP(&startTime, "start-time", "s", "2021-10-07T00:00:00Z", "start timestamp for the backtest")
-	pflag.StringVarP(&endTime, "end-time", "e", "2022-10-07T23:59:59Z", "end timestamp for the backtest")
+	pflag.StringVarP(&chainName, "chain-name", "c", "Ethereum Mainnet", "chain name to filter metrics")
+	pflag.StringVarP(&pairName, "pair-name", "p", "USDC/WETH", "asset pair to filter metrics")
+	pflag.StringVarP(&startTime, "start-time", "s", oya.Format(time.RFC3339), "start timestamp for the backtest")
+	pflag.StringVarP(&endTime, "end-time", "e", now.Format(time.RFC3339), "end timestamp for the backtest")
+	pflag.StringVarP(&gasPrices, "gas-prices", "g", "gas-prices/ethereum.csv", "CSV containing daily gas price averages")
+	pflag.Uint64VarP(&inputValue, "input-value", "v", 1_000_000, "stable coin input amount")
 	pflag.Float64VarP(&flagRehedgeRatio, "rehedge-ratio", "r", 0.01, "ratio between debt and collateral at which we rehedge")
 
-	pflag.StringVarP(&influxAPI, "influx-api", "a", "https://eu-central-1-1.aws.cloud2.influxdata.com", "InfluxDB API URL")
+	pflag.StringVarP(&influxAPI, "influx-api", "i", "https://eu-central-1-1.aws.cloud2.influxdata.com", "InfluxDB API URL")
 	pflag.StringVarP(&influxToken, "influx-token", "t", "", "InfluxDB authentication token")
 	pflag.StringVarP(&influxOrg, "influx-org", "o", "optakt", "InfluxDB organization name")
-	pflag.DurationVarP(&influxTimeout, "influx-timeout", "u", 15*time.Minute, "InfluxDB query HTTP request timeout")
-	pflag.StringVar(&influxBucketUniswap, "influx-bucket-uniswap", "uniswap", "InfluxDB bucket name for Uniswap metrics")
-	pflag.StringVar(&influxBucketPositions, "influx-bucket-positions", "positions", "InfluxDB bucket for position values")
+	pflag.StringVar(&influxBucketMetrics, "influx-bucket-metrics", "metrics", "InfluxDB bucket name for Uniswap metrics")
+	pflag.StringVar(&influxBucketStrategies, "influx-bucket-strategies", "strategies", "InfluxDB bucket for position values")
 
 	pflag.Float64Var(&flagSwapRate, "swap-rate", 0.003, "fee rate for asset swap")
 	pflag.Float64Var(&flagFlashRate, "flash-rate", 0.0009, "fee rate for flash loan")
@@ -131,26 +125,16 @@ func main() {
 	}
 	log = log.Level(level)
 
-	gasPrices, ok := prices[chain]
-	if !ok {
-		log.Fatal().Str("chain", chain).Msg("no gas prices available for chain")
-	}
-
-	pair, ok := pairs[chain]
-	if !ok {
-		log.Fatal().Str("chain", chain).Msg("no pair available for chain")
-	}
-
 	station, err := station.New(gasPrices)
 	if err != nil {
 		log.Fatal().Err(err).Str("gas_prices", gasPrices).Msg("could not create gas station")
 	}
 
 	client := influxdb2.NewClientWithOptions(influxAPI, influxToken,
-		influxdb2.DefaultOptions().SetHTTPRequestTimeout(uint(influxTimeout.Seconds())),
+		influxdb2.DefaultOptions().SetHTTPRequestTimeout(uint(15*time.Minute)),
 	)
 
-	outbound := client.WriteAPI(influxOrg, influxBucketPositions)
+	outbound := client.WriteAPI(influxOrg, influxBucketStrategies)
 	go func() {
 		for err := range outbound.Errors() {
 			log.Fatal().Err(err).Msg("encountered InfluxDB error")
@@ -158,7 +142,7 @@ func main() {
 	}()
 
 	inbound := client.QueryAPI(influxOrg)
-	query := fmt.Sprintf(statement, startTime, endTime, chain, pair)
+	query := fmt.Sprintf(statement, startTime, endTime, chainName, pairName)
 	result, err := inbound.Query(context.Background(), query)
 	if err != nil {
 		log.Fatal().Err(err).Msg("could not execute query")
